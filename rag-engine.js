@@ -150,10 +150,24 @@
     out = out.replace(/<\/?rdf:[^>]*>/gi, "");
     out = out.replace(/\brdf:(?:Description|about|resource)\b/gi, "");
     out = out.replace(/xmlns:[a-zA-Z0-9_-]+=(?:"[^"]*"|'[^']*')/gi, "");
+    // Remove common PDF internal tokens/metadata and object refs
+    out = out.replace(/\bDescendantFonts\b/gi, '');
+    out = out.replace(/\bFontDescriptor\b/gi, '');
+    out = out.replace(/CreationDate\([^)]*\)/gi, '');
+    out = out.replace(/ModDate\([^)]*\)/gi, '');
+    out = out.replace(/Title\([^)]*\)/gi, '');
+    out = out.replace(/\b\d+\s+\d+\s+R\b/g, '');
+    out = out.replace(/TimesNewRomanPS-[A-Za-z]+MT/gi, '');
     out = out.replace(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\s+\1)+/g, "$1");
     // Replace dashed UUIDs and long hex identifiers with a readable placeholder
     out = out.replace(/\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g, "[source-id]");
     out = out.replace(/\b[0-9a-fA-F]{16,}\b/g, "[source-id]");
+    // Replace any long alphanumeric tokens (base64-like or mixed) with placeholder
+    out = out.replace(/\b[A-Za-z0-9]{12,}\b/g, "[source-id]");
+    // Remove isolated 'R' tokens from PDF internals
+    out = out.replace(/\bR\b/g, "");
+    // Remove stray parentheses left from metadata fragments
+    out = out.replace(/\)\s*/g, " ");
     out = out.replace(/[<>]/g, "");
     // Collapse repeated placeholder tokens
     out = out.replace(/(\[source-id\])(?:\s+\1)+/g, "$1");
@@ -172,6 +186,32 @@
       strings.forEach((value) => textRuns.push(decodePdfString(value.slice(1, -1))));
     });
 
+    // Filter out likely PDF internals (font tables, object refs, long hex blobs)
+    const filteredRuns = textRuns.filter((run) => {
+      const t = String(run).trim();
+      if (!t) return false;
+      // remove short runs
+      if (t.length < 20) return false;
+      // remove runs that look like object refs (e.g., '21 0 R')
+      if (/^\d+\s+\d+\s+R$/i.test(t)) return false;
+      // remove PDF names and descriptors
+      if (/FontDescriptor|DescendantFonts|CreationDate|ModDate|Title\(|\/Font|\/F\d+/i.test(t)) return false;
+      // remove long hex or base64-like blobs
+      if (/^[0-9A-Fa-f]{16,}$/.test(t)) return false;
+      // ensure there's at least some letters
+      if (!/[A-Za-z]/.test(t)) return false;
+      // likely human text if it contains a space (multiple words)
+      if (t.indexOf(' ') === -1) return false;
+      return true;
+    });
+
+    if (filteredRuns.length) {
+      // Use filtered human-like runs
+      const text = normalizeText(filteredRuns.join(' '));
+      if (text) return text;
+    }
+
+    // Fallback: try to extract any longer readable sequences from the raw PDF
     if (textRuns.join(" ").trim().length < 30) {
       const fallback = raw.match(/[A-Za-z][A-Za-z0-9,.;:'"!?()\- ]{20,}/g) || [];
       textRuns.push(...fallback.slice(0, 120));
@@ -293,5 +333,31 @@
     chunkText,
     processFile,
     retrieve
+  };
+
+  // Reprocess projects: rebuild chunks for each document using sanitized extraction text
+  // Accepts an array of projects and returns a new array with updated documents
+  window.RagEngine.reprocessProjects = function (projects) {
+    if (!Array.isArray(projects)) return projects;
+    return projects.map((project) => {
+      const docs = (project.documents || []).map((doc) => {
+        try {
+          const text = String(doc.extractedText || "");
+          const cleaned = sanitizeText(text);
+          const chunks = chunkText(cleaned, doc.name || doc.id || "doc");
+          return {
+            ...doc,
+            status: chunks.length ? "processed" : "pending",
+            extractedText: cleaned,
+            chunks,
+            chunkCount: chunks.length,
+            extractionError: chunks.length ? "" : (doc.extractionError || "No readable text after sanitization")
+          };
+        } catch (e) {
+          return { ...doc, status: "error", extractionError: String(e) };
+        }
+      });
+      return { ...project, documents: docs };
+    });
   };
 })();
