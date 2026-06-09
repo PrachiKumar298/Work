@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Inventive RAG</title>
+    <meta name="description" content="A clean RAG workspace for organizing document collections, asking precise questions, and tracing responses back to their source material." />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <!-- Supabase JS SDK (v2) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <!-- RAG engine (must load before app) -->
+    <script src="./rag-engine.js"></script>
+    <!-- Environment Config -->
+    <script src="./config.js"></script>
+    <!-- Supabase client wrapper -->
+    <script src="./supabase-client.js"></script>
+    <!-- Main application -->
+    <script src="./app.js"></script>
+  </body>
+</html>
