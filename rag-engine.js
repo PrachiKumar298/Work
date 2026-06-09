@@ -151,11 +151,12 @@
     out = out.replace(/\brdf:(?:Description|about|resource)\b/gi, "");
     out = out.replace(/xmlns:[a-zA-Z0-9_-]+=(?:"[^"]*"|'[^']*')/gi, "");
     out = out.replace(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\s+\1)+/g, "$1");
-    // Replace long hex identifiers (including undashed UUID-like strings) with a readable placeholder
-    out = out.replace(/\b[0-9a-fA-F]{16,}\b/g, "[ID]");
+    // Replace dashed UUIDs and long hex identifiers with a readable placeholder
+    out = out.replace(/\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g, "[source-id]");
+    out = out.replace(/\b[0-9a-fA-F]{16,}\b/g, "[source-id]");
     out = out.replace(/[<>]/g, "");
     // Collapse repeated placeholder tokens
-    out = out.replace(/(\[ID\])(?:\s+\1)+/g, "$1");
+    out = out.replace(/(\[source-id\])(?:\s+\1)+/g, "$1");
     out = out.replace(/\s{2,}/g, " ").trim();
     return out;
   }
