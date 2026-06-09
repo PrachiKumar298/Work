@@ -62,7 +62,8 @@
   }
 
   async function processFile(file) {
-    const text = await extractTextFromFile(file);
+    const raw = await extractTextFromFile(file);
+    const text = sanitizeText(raw);
     const chunks = chunkText(text, file.name);
     if (!chunks.length) {
       throw new Error("No readable text was found in this file.");
@@ -140,6 +141,18 @@
       .replace(/&gt;/g, ">")
       .replace(/&quot;/g, '"')
       .replace(/&apos;/g, "'");
+  }
+
+  function sanitizeText(text) {
+    if (!text) return text;
+    let out = String(text);
+    out = out.replace(/<\/?rdf:[^>]*>/gi, "");
+    out = out.replace(/\brdf:(?:Description|about|resource)\b/gi, "");
+    out = out.replace(/xmlns:[a-zA-Z0-9_-]+=(?:"[^"]*"|'[^']*')/gi, "");
+    out = out.replace(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\s+\1)+/g, "$1");
+    out = out.replace(/[<>]/g, "");
+    out = out.replace(/\s{2,}/g, " ").trim();
+    return out;
   }
 
   function extractPdfText(buffer) {
@@ -252,17 +265,18 @@
           score: tokenize(sentence).filter((token) => queryTerms.has(token)).length
         }))
         .sort((a, b) => b.score - a.score)[0];
-      if (best?.sentence && !selectedSentences.includes(best.sentence)) {
-        selectedSentences.push(best.sentence);
+      if (best?.sentence) {
+        const clean = sanitizeText(best.sentence);
+        if (!selectedSentences.includes(clean)) selectedSentences.push(clean);
       }
     });
 
     const citations = retrieved.map((chunk) => `${chunk.documentName} chunk ${chunk.chunkNumber}`);
     return {
-      text: selectedSentences.slice(0, 3).join(" ") || retrieved[0].content,
+      text: selectedSentences.slice(0, 3).join(" ") || sanitizeText(retrieved[0].content),
       citations: [...new Set(citations)],
       context: retrieved
-        .map((chunk) => `[${chunk.documentName} chunk ${chunk.chunkNumber}] ${chunk.content}`)
+        .map((chunk) => `[${chunk.documentName} chunk ${chunk.chunkNumber}] ${sanitizeText(chunk.content)}`)
         .join("\n\n"),
       retrieved
     };

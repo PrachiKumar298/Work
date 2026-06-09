@@ -287,7 +287,7 @@ function renderAuth() {
       <section class="auth-panel">
         <div class="brand"><span class="brand-mark"></span><span>Inventive</span></div>
         <div class="auth-statement">
-          <h1>Search your knowledge. Cite every answer.</h1>
+          <h1>Search your knowledge.</h1>
           <p>A clean RAG workspace for organizing document collections, asking precise questions, and tracing responses back to their source material.</p>
           <div class="auth-accent"></div>
         </div>
