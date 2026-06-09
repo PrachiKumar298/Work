@@ -62,14 +62,15 @@
   }
 
   async function processFile(file) {
-    const raw = await extractTextFromFile(file);
-    const text = sanitizeText(raw);
+    // Preserve the extracted raw text for chunking so retrieval keeps all tokens.
+    const text = await extractTextFromFile(file);
     const chunks = chunkText(text, file.name);
     if (!chunks.length) {
       throw new Error("No readable text was found in this file.");
     }
     return {
-      extractedText: text.slice(0, 6000),
+      // provide a sanitized preview for UI but keep raw chunks for retrieval
+      extractedText: sanitizeText(text).slice(0, 6000),
       chunks,
       chunkCount: chunks.length
     };
@@ -150,7 +151,11 @@
     out = out.replace(/\brdf:(?:Description|about|resource)\b/gi, "");
     out = out.replace(/xmlns:[a-zA-Z0-9_-]+=(?:"[^"]*"|'[^']*')/gi, "");
     out = out.replace(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\s+\1)+/g, "$1");
+    // Replace long hex identifiers (including undashed UUID-like strings) with a readable placeholder
+    out = out.replace(/\b[0-9a-fA-F]{16,}\b/g, "[ID]");
     out = out.replace(/[<>]/g, "");
+    // Collapse repeated placeholder tokens
+    out = out.replace(/(\[ID\])(?:\s+\1)+/g, "$1");
     out = out.replace(/\s{2,}/g, " ").trim();
     return out;
   }
