@@ -35,6 +35,7 @@ function buildSeedDocument(id, name, status, uploadedAt) {
     name,
     type: name.split(".").pop().toUpperCase(),
     status,
+    indexStatus: status === "processed" ? "local" : "not_started",
     uploadedAt,
     extractedText: text,
     chunks,
@@ -121,6 +122,7 @@ function migrateState(nextState) {
             extractedText: sampleText,
             chunks,
             chunkCount: chunks.length,
+            indexStatus: doc.indexStatus || "local",
             extractionError: ""
           };
         }
@@ -128,6 +130,7 @@ function migrateState(nextState) {
           return {
             ...doc,
             status: "pending",
+            indexStatus: "not_started",
             chunkCount: 0,
             extractionError: "Upload this file again to build its retrieval index."
           };
@@ -135,7 +138,8 @@ function migrateState(nextState) {
         return {
           ...doc,
           chunks: doc.chunks || [],
-          chunkCount: doc.chunkCount || doc.chunks?.length || 0
+          chunkCount: doc.chunkCount || doc.chunks?.length || 0,
+          indexStatus: doc.indexStatus || (doc.status === "processed" ? "local" : "not_started")
         };
       })
     }))
@@ -178,6 +182,7 @@ async function loadUserDataFromDB(userId) {
         extractedText: d.extracted_text || "",
         extractionError: d.extraction_error || "",
         chunkCount: d.chunk_count || 0,
+        indexStatus: d.index_status || (d.chunk_count ? "local" : "not_started"),
         chunks: (allChunks || [])
           .filter((c) => c.document_id === d.id)
           .map((c) => ({
@@ -521,6 +526,9 @@ function renderProjectPage() {
 }
 
 function renderDocumentRow(projectId, doc) {
+  const detail = doc.status === "processed"
+    ? `${doc.chunkCount || 0} chunks · ${indexStatusLabel(doc.indexStatus)}`
+    : escapeHtml(doc.extractionError || "Waiting for text extraction");
   return `
     <tr>
       <td>
@@ -528,7 +536,7 @@ function renderDocumentRow(projectId, doc) {
           ${icons.file}
           <span>
             <span title="${escapeHtml(doc.name)}">${escapeHtml(doc.name)}</span>
-            <small class="doc-detail">${doc.status === "processed" ? `${doc.chunkCount || 0} indexed chunks` : escapeHtml(doc.extractionError || "Waiting for processing")}</small>
+            <small class="doc-detail">${detail}</small>
           </span>
         </span>
       </td>
@@ -537,6 +545,17 @@ function renderDocumentRow(projectId, doc) {
       <td><button class="icon-button" data-action="delete-doc" data-project-id="${projectId}" data-doc-id="${doc.id}" title="Delete document">${icons.trash}</button></td>
     </tr>
   `;
+}
+
+function indexStatusLabel(status) {
+  const labels = {
+    indexed: "vector indexed",
+    indexing: "vector indexing",
+    index_failed: "vector indexing failed, using local RAG",
+    local: "local RAG ready",
+    skipped: "local RAG ready"
+  };
+  return labels[status] || "local RAG ready";
 }
 
 function renderMessage(message, project) {
@@ -735,6 +754,7 @@ async function uploadDocuments(projectId, files) {
         name: file.name,
         type,
         status: "pending",
+        indexStatus: "not_started",
         uploadedAt: row?.uploaded_at || new Date().toISOString(),
         chunks: [],
         chunkCount: 0,
@@ -764,7 +784,8 @@ async function uploadDocuments(projectId, files) {
           status: "processed",
           extractedText: processed.extractedText,
           chunks: processed.chunks,
-          chunkCount: processed.chunkCount
+          chunkCount: processed.chunkCount,
+          indexStatus: "local"
         };
         // 4. Persist processed state + chunks to DB
         await window.InventiveDB.updateDocument(baseDoc.id, {
@@ -774,11 +795,23 @@ async function uploadDocuments(projectId, files) {
           extraction_error: ""
         });
         await window.InventiveDB.saveChunks(baseDoc.id, projectId, processed.chunks);
+        // If the advanced backend is configured, index chunks into Pinecone under the project namespace.
+        try {
+          if (window.FidEngine?.remoteAvailable && await window.FidEngine.remoteAvailable()) {
+            finalDoc.indexStatus = "indexing";
+            const ingestResult = await window.FidEngine.ingestChunksToPinecone(projectId, baseDoc.id, processed.chunks);
+            finalDoc.indexStatus = ingestResult?.error ? "index_failed" : "indexed";
+          }
+        } catch (e) {
+          finalDoc.indexStatus = "index_failed";
+          console.warn("Pinecone ingest skipped:", e?.message || e);
+        }
         return finalDoc;
       } catch (err) {
         const finalDoc = {
           ...baseDoc,
           status: "failed",
+          indexStatus: "not_started",
           extractionError: err.message || "Could not extract readable text from this file."
         };
         await window.InventiveDB.updateDocument(baseDoc.id, {
@@ -815,21 +848,53 @@ async function submitQuery(projectId, text) {
   if (!text) return setState({ errors: { query: "Enter a question before asking." } });
   const userId = state.user?.id;
   const project = getProject(projectId);
-  const ragAnswer = window.RagEngine.answer(text, project.documents);
 
   const userMsg = { role: "user", text, citations: [], context: "" };
-  const aiMsg   = { role: "ai", text: ragAnswer.text, citations: ragAnswer.citations, context: ragAnswer.context };
 
-  // Optimistic UI update
-  const nextProjects = state.projects.map((p) => {
-    if (p.id !== projectId) return p;
-    return { ...p, conversation: [...p.conversation, userMsg, aiMsg] };
-  });
-  setState({ projects: nextProjects, errors: {} });
+  // Optimistic UI update: show user message first
+  setState({ projects: state.projects.map((p) => (p.id === projectId ? { ...p, conversation: [...p.conversation, userMsg] } : p)), errors: {} });
 
-  // Persist both turns to DB
+  // Persist user turn
   await window.InventiveDB.addMessage(projectId, userId, "user", text, [], "");
+
+  // If Pinecone + FiD available, use it; otherwise fallback to local RagEngine
+  if (window.PineconeClient?.isConfigured && window.PineconeClient.isConfigured() && window.FidEngine) {
+    try {
+      const { answer, matches } = await window.FidEngine.queryFiD(projectId, text, 6);
+      const aiText = answer?.text || "";
+      const citations = (matches || []).map((m) => {
+        const md = m.metadata || {};
+        return md.document_id ? `${md.document_id} chunk ${md.chunk_number || "?"}` : m.id;
+      });
+      const aiMsg = { role: "ai", text: aiText, citations, context: passagesContext(matches) };
+
+      // Append AI reply to UI
+      setState({ projects: state.projects.map((p) => (p.id === projectId ? { ...p, conversation: [...p.conversation, aiMsg] } : p)), errors: {} });
+
+      // Persist AI turn
+      await window.InventiveDB.addMessage(projectId, userId, "ai", aiText, citations, aiMsg.context);
+      return;
+    } catch (e) {
+      console.error("FiD query failed:", e);
+      // fall through to local fallback
+    }
+  }
+
+  // Fallback: local RagEngine answer
+  const ragAnswer = window.RagEngine.answer(text, project.documents);
+  const aiMsg = { role: "ai", text: ragAnswer.text, citations: ragAnswer.citations, context: ragAnswer.context };
+  setState({ projects: state.projects.map((p) => (p.id === projectId ? { ...p, conversation: [...p.conversation, aiMsg] } : p)), errors: {} });
   await window.InventiveDB.addMessage(projectId, userId, "ai", ragAnswer.text, ragAnswer.citations, ragAnswer.context);
+}
+
+function passagesContext(matches) {
+  if (!matches) return "";
+  return matches
+    .map((m) => {
+      const md = m.metadata || {};
+      return `[${md.document_id || m.id} chunk ${md.chunk_number || "?"}] ${md.content ? md.content.slice(0, 500) : ""}`;
+    })
+    .join("\n\n");
 }
 
 render();

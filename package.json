@@ -1,0 +1,13 @@
+{
+  "name": "inventive-rag-smoketest",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check app.js && node --check rag-engine.js && node --check config.js && node --check embeddings.js && node --check pinecone-client.js && node --check fid-engine.js && node --check server.js"
+  },
+  "dependencies": {
+    "node-fetch": "2",
+    "puppeteer": "^20.0.0"
+  }
+}
