@@ -860,7 +860,11 @@ async function submitQuery(projectId, text) {
   // If Pinecone + FiD available, use it; otherwise fallback to local RagEngine
   if (window.PineconeClient?.isConfigured && window.PineconeClient.isConfigured() && window.FidEngine) {
     try {
-      const { answer, matches } = await window.FidEngine.queryFiD(projectId, text, 6);
+      const res = await window.FidEngine.queryFiD(projectId, text, 6);
+      if (res && res.error) {
+        throw new Error(res.error);
+      }
+      const { answer, matches } = res;
       const aiText = answer?.text || "";
       const citations = (matches || []).map((m) => {
         const md = m.metadata || {};
@@ -917,7 +921,7 @@ async function submitQuery(projectId, text) {
   }
   const aiMsg = { role: "ai", text: finalText, citations: ragAnswer.citations, context: ragAnswer.context };
   setState({ projects: state.projects.map((p) => (p.id === projectId ? { ...p, conversation: [...p.conversation, aiMsg] } : p)), errors: {} });
-  await window.InventiveDB.addMessage(projectId, userId, "ai", ragAnswer.text, ragAnswer.citations, ragAnswer.context);
+  await window.InventiveDB.addMessage(projectId, userId, "ai", finalText, ragAnswer.citations, ragAnswer.context);
 }
 
 function passagesContext(matches) {
