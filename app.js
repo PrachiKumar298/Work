@@ -898,6 +898,19 @@ async function submitQuery(projectId, text) {
   } catch (e) {
     console.warn('Could not check OpenAI availability:', e?.message || e);
   }
+  // If OpenAI not available or generation yielded nothing, use local summarizer to improve phrasing
+  if (!finalText || !finalText.trim()) {
+    try {
+      if (window.FidEngine?.generateLocalFromChunks) {
+        const local = await window.FidEngine.generateLocalFromChunks(text, ragAnswer.retrieved || []);
+        console.debug('generateLocalFromChunks result:', local);
+        if (local && local.text) finalText = local.text;
+        if (local && local.citations && !ragAnswer.citations?.length) ragAnswer.citations = local.citations;
+      }
+    } catch (e) {
+      console.warn('Local generation failed:', e?.message || e);
+    }
+  }
   // Ensure we always display something helpful: fallback to local ragAnswer.text or retrieved context
   if (!finalText || !finalText.trim()) {
     finalText = ragAnswer.text || (ragAnswer.context ? `Retrieved context:\n\n${ragAnswer.context}` : "No answer generated. Retrieved context not available.");

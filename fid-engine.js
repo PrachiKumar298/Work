@@ -111,5 +111,55 @@
     return { text, raw: data };
   }
 
-  window.FidEngine = { generateWithFiD, generateFromChunks, openAIAvailable, health, ingestChunksToPinecone, queryFiD, remoteAvailable };
+  // Local summarizer fallback: create a readable answer from retrieved chunks
+  function tokenizeLocal(text) {
+    return String(text).toLowerCase().match(/[a-z0-9]+/g) || [];
+  }
+
+  function scoreSentenceByQuery(sentence, queryTokens) {
+    const tokens = tokenizeLocal(sentence);
+    let score = 0;
+    for (const t of queryTokens) if (tokens.includes(t)) score += 1;
+    return score;
+  }
+
+  async function generateLocalFromChunks(query, chunks) {
+    try {
+      const queryTokens = tokenizeLocal(query);
+      const candidates = [];
+      (chunks || []).forEach((c) => {
+        const sentences = String(c.content || '').split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+        sentences.forEach((s) => {
+          candidates.push({ sentence: s, source: c.source || c.document_id || c.id || 'unknown', score: scoreSentenceByQuery(s, queryTokens) });
+        });
+      });
+
+      // Prefer sentences that match the query, but include others if needed
+      candidates.sort((a, b) => b.score - a.score);
+      const top = [];
+      const seen = new Set();
+      for (const c of candidates) {
+        const key = c.sentence.toLowerCase().slice(0, 120);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        top.push(c);
+        if (top.length >= 3) break;
+      }
+
+      let text = '';
+      if (top.length) {
+        text = 'Answer (based on retrieved passages): ' + top.map((t) => t.sentence).join(' ');
+      } else {
+        // Fallback: join first chunk contents
+        text = (chunks && chunks.length) ? chunks.slice(0, 2).map((c) => c.content).join('\n\n') : '';
+      }
+
+      const citations = Array.from(new Set((top.map((t) => t.source)).filter(Boolean)));
+      return { text, citations };
+    } catch (e) {
+      return { text: '', citations: [] };
+    }
+  }
+
+  window.FidEngine = { generateWithFiD, generateFromChunks, generateLocalFromChunks, openAIAvailable, health, ingestChunksToPinecone, queryFiD, remoteAvailable };
 })();
