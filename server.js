@@ -97,6 +97,69 @@ async function proxyOpenAIGeneration(res, body) {
   sendJson(res, response.ok ? 200 : response.status, data);
 }
 
+async function proxyGeminiGeneration(res, body) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return sendJson(res, 503, { error: "GEMINI_API_KEY is not configured on the server." });
+
+  const passages = Array.isArray(body.passages) ? body.passages : [];
+  let prompt = "Answer the question using only the provided passages. Cite passage numbers in square brackets.\n\n";
+  prompt += `Question: ${body.query || ""}\n\nPassages:\n`;
+  passages.forEach((passage, index) => {
+    prompt += `[${index + 1}] ${passage.text || ""}\nSource: ${passage.source || passage.id || "unknown"}\n\n`;
+  });
+  prompt += "Write a concise grounded answer. If the passages do not answer the question, say that clearly.";
+
+  try {
+    let model = process.env.GENERATION_MODEL || "gemini-1.5-flash";
+    if (body.model && body.model.startsWith("gemini")) {
+      model = body.model;
+    }
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: prompt
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          maxOutputTokens: 512,
+          temperature: 0
+        }
+      })
+    });
+
+    const data = await response.json().catch(async () => ({ error: await response.text() }));
+    if (!response.ok) {
+      return sendJson(res, response.status, data);
+    }
+
+    const geminiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const formattedData = {
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: geminiText
+          }
+        }
+      ]
+    };
+    sendJson(res, 200, formattedData);
+  } catch (error) {
+    sendJson(res, 500, { error: error.message || "Gemini Generation server error." });
+  }
+}
+
 async function proxyPinecone(res, action, body) {
   const host = process.env.PINECONE_HOST;
   const apiKey = process.env.PINECONE_API_KEY;
@@ -119,10 +182,10 @@ async function handleApi(req, res) {
   if (req.method === "OPTIONS") return sendJson(res, 204, {});
   if (req.url === "/api/health") {
     return sendJson(res, 200, {
-      openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
+      openaiConfigured: Boolean(process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY),
       pineconeConfigured: Boolean(process.env.PINECONE_HOST && process.env.PINECONE_API_KEY),
       embeddingModel: process.env.EMBEDDING_MODEL || "text-embedding-3-small",
-      generationModel: process.env.GENERATION_MODEL || "gpt-4o-mini"
+      generationModel: process.env.GENERATION_MODEL || (process.env.GEMINI_API_KEY ? "gemini-1.5-flash" : "gpt-4o-mini")
     });
   }
 
@@ -131,7 +194,13 @@ async function handleApi(req, res) {
   try {
     const body = await readJson(req);
     if (req.url === "/api/embed") return proxyOpenAIEmbeddings(res, body);
-    if (req.url === "/api/generate") return proxyOpenAIGeneration(res, body);
+    if (req.url === "/api/generate") {
+      if (process.env.GEMINI_API_KEY) {
+        return proxyGeminiGeneration(res, body);
+      } else {
+        return proxyOpenAIGeneration(res, body);
+      }
+    }
     if (req.url === "/api/pinecone/upsert") return proxyPinecone(res, "upsert", body);
     if (req.url === "/api/pinecone/query") return proxyPinecone(res, "query", body);
     sendJson(res, 404, { error: "Unknown API endpoint." });
