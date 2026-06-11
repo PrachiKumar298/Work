@@ -83,5 +83,33 @@
     return { text, raw: data };
   }
 
-  window.FidEngine = { generateWithFiD, health, ingestChunksToPinecone, queryFiD, remoteAvailable };
+  // Check whether only OpenAI generation is available (no Pinecone required)
+  async function openAIAvailable() {
+    try {
+      const s = await health();
+      return Boolean(s.openaiConfigured);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Generate a readable answer from an array of chunks using the server-side generator.
+  // chunks: array of { id, source, chunkNumber, content }
+  async function generateFromChunks(query, chunks) {
+    const passages = (chunks || []).map((c) => ({ id: c.id || `${c.source}-${c.chunkNumber}`, text: c.content || "", source: c.source || c.document_id || "" }));
+    const res = await fetch(apiUrl("/api/generate"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, passages, model: MODEL })
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Generation backend failed: ${res.status} ${txt}`);
+    }
+    const data = await res.json();
+    const text = data.choices?.[0]?.message?.content || "";
+    return { text, raw: data };
+  }
+
+  window.FidEngine = { generateWithFiD, generateFromChunks, openAIAvailable, health, ingestChunksToPinecone, queryFiD, remoteAvailable };
 })();

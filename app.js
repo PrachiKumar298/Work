@@ -882,7 +882,21 @@ async function submitQuery(projectId, text) {
 
   // Fallback: local RagEngine answer
   const ragAnswer = window.RagEngine.answer(text, project.documents);
-  const aiMsg = { role: "ai", text: ragAnswer.text, citations: ragAnswer.citations, context: ragAnswer.context };
+  // If OpenAI generation is available via the backend, call it to make the output more readable.
+  let finalText = ragAnswer.text;
+  try {
+    if (window.FidEngine?.openAIAvailable && await window.FidEngine.openAIAvailable()) {
+      try {
+        const gen = await window.FidEngine.generateFromChunks(text, ragAnswer.retrieved || []);
+        if (gen && gen.text) finalText = gen.text;
+      } catch (e) {
+        console.warn('Generation from chunks failed, falling back to local answer:', e?.message || e);
+      }
+    }
+  } catch (e) {
+    console.warn('Could not check OpenAI availability:', e?.message || e);
+  }
+  const aiMsg = { role: "ai", text: finalText, citations: ragAnswer.citations, context: ragAnswer.context };
   setState({ projects: state.projects.map((p) => (p.id === projectId ? { ...p, conversation: [...p.conversation, aiMsg] } : p)), errors: {} });
   await window.InventiveDB.addMessage(projectId, userId, "ai", ragAnswer.text, ragAnswer.citations, ragAnswer.context);
 }
