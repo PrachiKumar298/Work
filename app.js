@@ -882,12 +882,14 @@ async function submitQuery(projectId, text) {
 
   // Fallback: local RagEngine answer
   const ragAnswer = window.RagEngine.answer(text, project.documents);
+  console.debug('RagEngine.answer result:', ragAnswer);
   // If OpenAI generation is available via the backend, call it to make the output more readable.
   let finalText = ragAnswer.text;
   try {
     if (window.FidEngine?.openAIAvailable && await window.FidEngine.openAIAvailable()) {
       try {
         const gen = await window.FidEngine.generateFromChunks(text, ragAnswer.retrieved || []);
+        console.debug('generateFromChunks result:', gen);
         if (gen && gen.text) finalText = gen.text;
       } catch (e) {
         console.warn('Generation from chunks failed, falling back to local answer:', e?.message || e);
@@ -895,6 +897,10 @@ async function submitQuery(projectId, text) {
     }
   } catch (e) {
     console.warn('Could not check OpenAI availability:', e?.message || e);
+  }
+  // Ensure we always display something helpful: fallback to local ragAnswer.text or retrieved context
+  if (!finalText || !finalText.trim()) {
+    finalText = ragAnswer.text || (ragAnswer.context ? `Retrieved context:\n\n${ragAnswer.context}` : "No answer generated. Retrieved context not available.");
   }
   const aiMsg = { role: "ai", text: finalText, citations: ragAnswer.citations, context: ragAnswer.context };
   setState({ projects: state.projects.map((p) => (p.id === projectId ? { ...p, conversation: [...p.conversation, aiMsg] } : p)), errors: {} });
