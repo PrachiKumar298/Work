@@ -380,7 +380,6 @@ function renderDashboard() {
             <option value="starred-only" ${state.sort === "starred-only" ? "selected" : ""}>Flagged / Starred only</option>
           </select>
         </div>
-        <button class="secondary-button" data-action="open-new-project">${icons.plus} Create</button>
       </section>
       ${projects.length ? `
         <section class="project-grid" aria-label="Project list">
