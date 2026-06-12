@@ -524,7 +524,7 @@ function renderProjectPage() {
             </div>
           </div>
           <section class="conversation" aria-label="Conversation">
-            ${project.conversation.length ? project.conversation.map((message) => renderMessage(message, project)).join("") : `
+            ${project.conversation.length ? project.conversation.slice().reverse().map((message) => renderMessage(message, project)).join("") : `
               <div class="empty-state">
                 <div>
                   <h2>No questions yet</h2>
