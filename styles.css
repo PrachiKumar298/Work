@@ -474,20 +474,13 @@ button {
 }
 
 .search-field .icon {
-  position: absolute;
-  left: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--muted);
-  display: inline-flex;
-  align-items: center;
+  display: none;
 }
 
 .search-field input {
-  /* left padding matches icon width + spacing */
-  padding-left: 44px;
-  /* match input line height to center placeholder text */
-  line-height: 44px;
+  /* smaller left padding since icon is removed */
+  padding-left: 12px;
+  line-height: normal;
 }
 
 .project-grid {

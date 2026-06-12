@@ -378,7 +378,6 @@ function renderDashboard() {
       <section class="toolbar" aria-label="Project controls">
         <div class="field search-field">
           <label for="projectSearch">Search projects</label>
-          ${icons.search}
           <input id="projectSearch" value="${escapeHtml(state.search)}" placeholder="Find by project name" />
         </div>
         <div class="field">
