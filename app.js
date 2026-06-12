@@ -424,7 +424,7 @@ function renderProjectCard(project) {
       <span class="card-meta">
         <span>${project.documents.filter((doc) => doc.status === "processed").length} processed</span>
         <span class="count-pill">${project.documents.length} docs</span>
-            <button class="icon-button" title="Toggle star" data-action="toggle-star" data-project-id="${project.id}">${project.starred ? icons.starFilled : icons.star}</button>
+            <button class="icon-button ${project.starred ? 'starred' : ''}" title="Toggle star" data-action="toggle-star" data-project-id="${project.id}">${project.starred ? icons.starFilled : icons.star}</button>
             <button class="icon-button" title="Rename project" data-action="rename-project" data-project-id="${project.id}">${icons.pencil}</button>
             <button class="icon-button" title="Delete project" data-action="delete-project" data-project-id="${project.id}">${icons.trash}</button>
       </span>
