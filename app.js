@@ -293,7 +293,6 @@ function renderHeader() {
   return `
     <header class="header">
       <div class="brand" aria-label="Inventive brand"><span class="brand-mark"></span><span>Inventive</span></div>
-      <button class="nav-button" data-action="home" title="Home">${icons.home} Home</button>
       <div class="header-actions">
         <button class="danger-button" data-action="logout" title="Log out">${icons.logOut} Logout</button>
       </div>
