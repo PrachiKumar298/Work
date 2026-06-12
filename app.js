@@ -223,7 +223,19 @@ async function loadUserDataFromDB(userId) {
 function setState(next) {
   state = { ...state, ...next };
   saveState();
+  // Preserve search focus/caret across re-renders when typing in the search box
+  const preserveSearchFocus = !!window._projectSearchFocused;
   render();
+  if (preserveSearchFocus) {
+    const input = document.querySelector('#projectSearch');
+    if (input) {
+      input.focus();
+      const len = input.value.length;
+      try { input.setSelectionRange(len, len); } catch (e) { /* ignore */ }
+    }
+    // clear the flag after restoring focus
+    window._projectSearchFocused = false;
+  }
 }
 
 function navigate(route) {
@@ -650,6 +662,8 @@ function bindEvents() {
       const v = event.target.value;
       // update in-memory state immediately so UI that reads state.search can access it
       state.search = v;
+      // mark that the user is typing in the search box so we can preserve focus across re-renders
+      window._projectSearchFocused = true;
       if (window._projectSearchTimeout) clearTimeout(window._projectSearchTimeout);
       window._projectSearchTimeout = setTimeout(() => {
         setState({ search: v });
