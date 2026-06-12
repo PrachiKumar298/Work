@@ -610,9 +610,18 @@ function buildContext(project) {
 }
 
 function bindEvents() {
-  document.querySelectorAll("[data-action]").forEach((element) => {
-    element.addEventListener("click", handleAction);
-  });
+  // Use a single delegated listener for all data-action clicks to avoid
+  // missing handlers after re-renders and to simplify event routing.
+  if (!window._delegatedActionsBound) {
+    document.addEventListener('click', (event) => {
+      const el = event.target.closest('[data-action]');
+      if (!el) return;
+      // Prevent form buttons from double-submitting when inside a form
+      if (el.tagName === 'BUTTON' && el.type === 'submit') return;
+      handleAction({ currentTarget: el, preventDefault: () => {} });
+    });
+    window._delegatedActionsBound = true;
+  }
   document.querySelectorAll("form").forEach((form) => {
     form.addEventListener("submit", handleSubmit);
   });
