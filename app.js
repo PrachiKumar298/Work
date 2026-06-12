@@ -370,7 +370,6 @@ function renderDashboard() {
     <main class="page">
       <div class="section-head">
         <div>
-          <p class="eyebrow">Home</p>
           <h1>Projects</h1>
           <p>Manage document collections, track ingestion status, and open a project to ask cited questions.</p>
         </div>
