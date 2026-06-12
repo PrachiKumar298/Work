@@ -645,7 +645,17 @@ function bindEvents() {
 
   const projectSearch = document.querySelector("#projectSearch");
   if (projectSearch) {
-    projectSearch.addEventListener("input", (event) => setState({ search: event.target.value }));
+    // Debounce search updates to avoid re-rendering on every keystroke
+    projectSearch.addEventListener("input", (event) => {
+      const v = event.target.value;
+      // update in-memory state immediately so UI that reads state.search can access it
+      state.search = v;
+      if (window._projectSearchTimeout) clearTimeout(window._projectSearchTimeout);
+      window._projectSearchTimeout = setTimeout(() => {
+        setState({ search: v });
+        window._projectSearchTimeout = null;
+      }, 250);
+    });
   }
 
   const projectSort = document.querySelector("#projectSort");
