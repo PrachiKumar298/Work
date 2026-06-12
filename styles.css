@@ -475,14 +475,15 @@ button {
 
 .search-field .icon {
   position: absolute;
-  left: 12px;
-  top: 50%;
+  left: 14px;
+  top: 48%;
   transform: translateY(-50%);
   color: var(--muted);
 }
 
 .search-field input {
-  padding-left: 40px;
+  /* increase left padding so text doesn't overlap the icon */
+  padding-left: 48px;
 }
 
 .project-grid {
