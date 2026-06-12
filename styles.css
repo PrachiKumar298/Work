@@ -524,6 +524,26 @@ button {
   font-size: 0.88rem;
 }
 
+/* Make the project title area look like plain text (no gray button box) */
+.project-card .card-main {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  display: block;
+  text-align: left;
+  width: 100%;
+}
+.project-card .card-main:focus {
+  outline: none;
+}
+.project-card .card-main h2 {
+  margin: 0;
+}
+.project-card .card-main p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
 .count-pill,
 .status-pill,
 .citation-pill {
