@@ -524,14 +524,7 @@ function renderProjectPage() {
             </div>
           </div>
           <section class="conversation" aria-label="Conversation">
-            ${project.conversation.length ? project.conversation.slice().reverse().map((message) => renderMessage(message, project)).join("") : `
-              <div class="empty-state">
-                <div>
-                  <h2>No questions yet</h2>
-                  <p>Ask a question to generate a sourced answer.</p>
-                </div>
-              </div>
-            `}
+            ${renderConversation(project)}
           </section>
         </div>
       </section>
@@ -606,6 +599,33 @@ function buildContext(project) {
   const processed = project.documents.filter((doc) => doc.status === "processed");
   if (!processed.length) return "No processed documents are available for retrieval yet.";
   return `Indexed sources: ${processed.map((doc) => `${doc.name} (${doc.chunkCount || 0} chunks)`).join(", ")}.`;
+}
+
+function renderConversation(project) {
+  const conv = project.conversation || [];
+  if (!conv.length) return `
+    <div class="empty-state">
+      <div>
+        <h2>No questions yet</h2>
+        <p>Ask a question to generate a sourced answer.</p>
+      </div>
+    </div>
+  `;
+
+  // Find all user message indices, then render them newest-first with their following AI reply (if any)
+  const userIndices = conv
+    .map((m, i) => (m.role === 'user' ? i : -1))
+    .filter((i) => i >= 0);
+
+  return userIndices
+    .slice()
+    .reverse()
+    .map((i) => {
+      const userMsg = conv[i];
+      const aiMsg = conv.slice(i + 1).find((m) => m.role === 'ai');
+      return `${renderMessage(userMsg, project)}${aiMsg ? renderMessage(aiMsg, project) : ''}`;
+    })
+    .join('');
 }
 
 function bindEvents() {
