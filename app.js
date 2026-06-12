@@ -12,6 +12,9 @@ const icons = {
   arrowLeft: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>'
 };
 
+// add edit/pencil icon
+icons.pencil = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"/><path d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>';
+
 const storageKey = "inventive-rag-ui";
 
 const sampleDocumentText = {
@@ -422,8 +425,9 @@ function renderProjectCard(project) {
       <span class="card-meta">
         <span>${project.documents.filter((doc) => doc.status === "processed").length} processed</span>
         <span class="count-pill">${project.documents.length} docs</span>
-        <button class="icon-button" title="Toggle star" data-action="toggle-star" data-project-id="${project.id}">${project.starred ? icons.starFilled : icons.star}</button>
-        <button class="icon-button" title="Delete project" data-action="delete-project" data-project-id="${project.id}">${icons.trash}</button>
+            <button class="icon-button" title="Toggle star" data-action="toggle-star" data-project-id="${project.id}">${project.starred ? icons.starFilled : icons.star}</button>
+            <button class="icon-button" title="Rename project" data-action="rename-project" data-project-id="${project.id}">${icons.pencil}</button>
+            <button class="icon-button" title="Delete project" data-action="delete-project" data-project-id="${project.id}">${icons.trash}</button>
       </span>
     </div>
   `;
@@ -677,6 +681,9 @@ async function handleAction(event) {
   if (action === "toggle-star") {
     toggleStarProject(target.dataset.projectId);
   }
+  if (action === "rename-project") {
+    renameProject(target.dataset.projectId);
+  }
 }
 
 async function handleSubmit(event) {
@@ -888,6 +895,25 @@ async function toggleStarProject(projectId) {
     }
   } catch (e) {
     console.error('toggleStarProject DB error:', e);
+  }
+}
+
+async function renameProject(projectId) {
+  const project = getProject(projectId);
+  if (!project) return;
+  const newName = prompt('Rename project', project.name);
+  if (!newName) return;
+  const trimmed = newName.trim();
+  if (!trimmed) return alert('Project name cannot be empty.');
+  // Optimistic update
+  const nextProjects = state.projects.map((p) => (p.id === projectId ? { ...p, name: trimmed } : p));
+  setState({ projects: nextProjects, errors: {} });
+  try {
+    if (window.InventiveDB && window.InventiveDB.updateProject) {
+      await window.InventiveDB.updateProject(projectId, { name: trimmed });
+    }
+  } catch (e) {
+    console.error('renameProject DB error:', e);
   }
 }
 
