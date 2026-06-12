@@ -645,13 +645,20 @@ button {
 .modal .icon-button {
   width: auto;
   height: auto;
-  padding: 6px;
+  padding: 4px;
   border: 0;
   background: transparent;
   color: var(--muted);
+  /* slightly lift the close icon */
+  transform: translateY(-4px);
 }
 .modal .icon-button:hover {
   color: var(--red);
+}
+
+.modal .icon-button .icon {
+  width: 20px;
+  height: 20px;
 }
 
 .modal h2 {
