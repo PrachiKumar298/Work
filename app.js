@@ -7,6 +7,8 @@ const icons = {
   file: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
   send: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>',
   close: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+  star: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17.3 5.6 20l1.1-6.4L2 9.6l6.5-.9L12 3l3.5 5.7L22 9.6l-4.7 3.9L18.4 20z"/></svg>',
+  starFilled: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .587l3.668 7.431L24 9.587l-6 5.847L19.335 24 12 19.897 4.665 24 6 15.434 0 9.587l8.332-1.569L12 .587z"/></svg>',
   arrowLeft: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>'
 };
 
@@ -367,11 +369,12 @@ function renderDashboard() {
           <input id="projectSearch" value="${escapeHtml(state.search)}" placeholder="Find by project name" />
         </div>
         <div class="field">
-          <label for="projectSort">Sort by</label>
+          <label for="projectSort">Sort / Filter</label>
           <select id="projectSort">
             <option value="created-desc" ${state.sort === "created-desc" ? "selected" : ""}>Newest first</option>
             <option value="name-asc" ${state.sort === "name-asc" ? "selected" : ""}>Name A to Z</option>
             <option value="docs-desc" ${state.sort === "docs-desc" ? "selected" : ""}>Most documents</option>
+            <option value="starred-only" ${state.sort === "starred-only" ? "selected" : ""}>Flagged / Starred only</option>
           </select>
         </div>
         <button class="secondary-button" data-action="open-new-project">${icons.plus} Create</button>
@@ -396,6 +399,10 @@ function filteredProjects() {
   const needle = state.search.trim().toLowerCase();
   return state.projects
     .filter((project) => project.name.toLowerCase().includes(needle))
+    .filter((project) => {
+      if (state.sort === "starred-only") return project.starred === true;
+      return true;
+    })
     .sort((a, b) => {
       if (state.sort === "name-asc") return a.name.localeCompare(b.name);
       if (state.sort === "docs-desc") return b.documents.length - a.documents.length;
@@ -405,16 +412,20 @@ function filteredProjects() {
 
 function renderProjectCard(project) {
   return `
-    <button class="project-card" data-action="open-project" data-project-id="${project.id}">
-      <span>
-        <h2>${escapeHtml(project.name)}</h2>
-        <p>Created ${formatDate(project.createdAt)}</p>
-      </span>
+    <div class="project-card">
+      <button class="card-main" data-action="open-project" data-project-id="${project.id}">
+        <span>
+          <h2>${escapeHtml(project.name)}</h2>
+          <p>Created ${formatDate(project.createdAt)}</p>
+        </span>
+      </button>
       <span class="card-meta">
         <span>${project.documents.filter((doc) => doc.status === "processed").length} processed</span>
         <span class="count-pill">${project.documents.length} docs</span>
+        <button class="icon-button" title="Toggle star" data-action="toggle-star" data-project-id="${project.id}">${project.starred ? icons.starFilled : icons.star}</button>
+        <button class="icon-button" title="Delete project" data-action="delete-project" data-project-id="${project.id}">${icons.trash}</button>
       </span>
-    </button>
+    </div>
   `;
 }
 
@@ -660,6 +671,12 @@ async function handleAction(event) {
   if (action === "delete-doc") {
     deleteDocument(target.dataset.projectId, target.dataset.docId);
   }
+  if (action === "delete-project") {
+    deleteProject(target.dataset.projectId);
+  }
+  if (action === "toggle-star") {
+    toggleStarProject(target.dataset.projectId);
+  }
 }
 
 async function handleSubmit(event) {
@@ -842,6 +859,36 @@ async function deleteDocument(projectId, docId) {
     return { ...project, documents: project.documents.filter((doc) => doc.id !== docId) };
   });
   setState({ projects: nextProjects, errors: {} });
+}
+
+async function deleteProject(projectId) {
+  if (!confirm('Delete this project and all its documents? This cannot be undone.')) return;
+  try {
+    const { error } = await window.InventiveDB.deleteProject(projectId);
+    if (error) console.error('[DB] deleteProject:', error);
+  } catch (e) {
+    console.error('deleteProject error:', e);
+  }
+  const nextProjects = state.projects.filter((p) => p.id !== projectId);
+  // If we were viewing the deleted project, go back to dashboard
+  const nextRoute = state.route.name === 'project' && state.route.projectId === projectId ? { name: 'dashboard' } : state.route;
+  setState({ projects: nextProjects, route: nextRoute, errors: {} });
+}
+
+async function toggleStarProject(projectId) {
+  const project = getProject(projectId);
+  if (!project) return;
+  const newVal = !project.starred;
+  // Optimistic UI
+  const nextProjects = state.projects.map((p) => (p.id === projectId ? { ...p, starred: newVal } : p));
+  setState({ projects: nextProjects, errors: {} });
+  try {
+    if (window.InventiveDB && window.InventiveDB.updateProject) {
+      await window.InventiveDB.updateProject(projectId, { starred: newVal });
+    }
+  } catch (e) {
+    console.error('toggleStarProject DB error:', e);
+  }
 }
 
 async function submitQuery(projectId, text) {
