@@ -641,6 +641,19 @@ button {
   margin-bottom: 18px;
 }
 
+/* Make modal close button a plain 'x' (no box) */
+.modal .icon-button {
+  width: auto;
+  height: auto;
+  padding: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.modal .icon-button:hover {
+  color: var(--red);
+}
+
 .modal h2 {
   margin: 0;
   font-size: 1.25rem;
