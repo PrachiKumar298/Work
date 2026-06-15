@@ -52,11 +52,15 @@ create table if not exists public.chunks (
   chunk_number integer not null,
   content      text not null,
   tokens       text[] not null default '{}',
+  embedding    real[] default null,
   created_at   timestamptz not null default now()
 );
 
 create index if not exists chunks_project_id_idx  on public.chunks (project_id);
 create index if not exists chunks_document_id_idx on public.chunks (document_id);
+
+-- Migration statement for existing schemas:
+-- alter table public.chunks add column if not exists embedding real[];
 
 -- ── Conversations ────────────────────────────────────────────
 -- Stores every user + AI message turn for a project.

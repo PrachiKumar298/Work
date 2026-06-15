@@ -25,15 +25,42 @@
     const cleaned = normalizeText(text);
     if (!cleaned) return [];
 
-    const words = cleaned.split(/\s+/);
-    const chunkSize = 95;
-    const overlap = 24;
+    const sentences = cleaned.match(/[^.!?]+[.!?]?(?:\s+|$)/g) || [cleaned];
+    
     const chunks = [];
+    const targetWords = 110; 
+    const overlapSentences = 1; 
+    
+    let currentSentences = [];
+    let currentWordCount = 0;
 
-    for (let start = 0; start < words.length; start += chunkSize - overlap) {
-      const chunkWords = words.slice(start, start + chunkSize);
-      if (chunkWords.length < 8 && chunks.length) break;
-      const content = chunkWords.join(" ");
+    for (let i = 0; i < sentences.length; i++) {
+      const sentence = sentences[i].trim();
+      if (!sentence) continue;
+
+      const sentenceWords = sentence.split(/\s+/).length;
+      
+      if (currentWordCount + sentenceWords > targetWords && currentSentences.length > 0) {
+        const content = currentSentences.join(" ");
+        chunks.push({
+          id: `${sourceName}-${chunks.length + 1}`,
+          source: sourceName,
+          chunkNumber: chunks.length + 1,
+          content,
+          tokens: tokenize(content)
+        });
+
+        const overlapCount = Math.min(overlapSentences, currentSentences.length);
+        currentSentences = currentSentences.slice(currentSentences.length - overlapCount);
+        currentWordCount = currentSentences.reduce((acc, s) => acc + s.split(/\s+/).length, 0);
+      }
+
+      currentSentences.push(sentence);
+      currentWordCount += sentenceWords;
+    }
+
+    if (currentSentences.length > 0) {
+      const content = currentSentences.join(" ");
       chunks.push({
         id: `${sourceName}-${chunks.length + 1}`,
         source: sourceName,
@@ -41,7 +68,6 @@
         content,
         tokens: tokenize(content)
       });
-      if (start + chunkSize >= words.length) break;
     }
 
     return chunks;
@@ -62,15 +88,13 @@
   }
 
   async function processFile(file) {
-    // Preserve the extracted raw text for chunking so retrieval keeps all tokens.
     const text = await extractTextFromFile(file);
     const chunks = chunkText(text, file.name);
     if (!chunks.length) {
       throw new Error("No readable text was found in this file.");
     }
     return {
-      // provide a sanitized preview for UI but keep raw chunks for retrieval
-      extractedText: sanitizeText(text).slice(0, 6000),
+      extractedText: text.slice(0, 6000),
       chunks,
       chunkCount: chunks.length
     };
@@ -144,37 +168,6 @@
       .replace(/&apos;/g, "'");
   }
 
-  function sanitizeText(text) {
-    if (!text) return text;
-    let out = String(text);
-    out = out.replace(/<\/?rdf:[^>]*>/gi, "");
-    out = out.replace(/\brdf:(?:Description|about|resource)\b/gi, "");
-    out = out.replace(/xmlns:[a-zA-Z0-9_-]+=(?:"[^"]*"|'[^']*')/gi, "");
-    // Remove common PDF internal tokens/metadata and object refs
-    out = out.replace(/\bDescendantFonts\b/gi, '');
-    out = out.replace(/\bFontDescriptor\b/gi, '');
-    out = out.replace(/CreationDate\([^)]*\)/gi, '');
-    out = out.replace(/ModDate\([^)]*\)/gi, '');
-    out = out.replace(/Title\([^)]*\)/gi, '');
-    out = out.replace(/\b\d+\s+\d+\s+R\b/g, '');
-    out = out.replace(/TimesNewRomanPS-[A-Za-z]+MT/gi, '');
-    out = out.replace(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\s+\1)+/g, "$1");
-    // Replace dashed UUIDs and long hex identifiers with a readable placeholder
-    out = out.replace(/\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g, "[source-id]");
-    out = out.replace(/\b[0-9a-fA-F]{16,}\b/g, "[source-id]");
-    // Replace any long alphanumeric tokens (base64-like or mixed) with placeholder
-    out = out.replace(/\b[A-Za-z0-9]{12,}\b/g, "[source-id]");
-    // Remove isolated 'R' tokens from PDF internals
-    out = out.replace(/\bR\b/g, "");
-    // Remove stray parentheses left from metadata fragments
-    out = out.replace(/\)\s*/g, " ");
-    out = out.replace(/[<>]/g, "");
-    // Collapse repeated placeholder tokens
-    out = out.replace(/(\[source-id\])(?:\s+\1)+/g, "$1");
-    out = out.replace(/\s{2,}/g, " ").trim();
-    return out;
-  }
-
   function extractPdfText(buffer) {
     const raw = new TextDecoder("latin1").decode(buffer);
     const textRuns = [];
@@ -186,32 +179,6 @@
       strings.forEach((value) => textRuns.push(decodePdfString(value.slice(1, -1))));
     });
 
-    // Filter out likely PDF internals (font tables, object refs, long hex blobs)
-    const filteredRuns = textRuns.filter((run) => {
-      const t = String(run).trim();
-      if (!t) return false;
-      // remove short runs
-      if (t.length < 20) return false;
-      // remove runs that look like object refs (e.g., '21 0 R')
-      if (/^\d+\s+\d+\s+R$/i.test(t)) return false;
-      // remove PDF names and descriptors
-      if (/FontDescriptor|DescendantFonts|CreationDate|ModDate|Title\(|\/Font|\/F\d+/i.test(t)) return false;
-      // remove long hex or base64-like blobs
-      if (/^[0-9A-Fa-f]{16,}$/.test(t)) return false;
-      // ensure there's at least some letters
-      if (!/[A-Za-z]/.test(t)) return false;
-      // likely human text if it contains a space (multiple words)
-      if (t.indexOf(' ') === -1) return false;
-      return true;
-    });
-
-    if (filteredRuns.length) {
-      // Use filtered human-like runs
-      const text = normalizeText(filteredRuns.join(' '));
-      if (text) return text;
-    }
-
-    // Fallback: try to extract any longer readable sequences from the raw PDF
     if (textRuns.join(" ").trim().length < 30) {
       const fallback = raw.match(/[A-Za-z][A-Za-z0-9,.;:'"!?()\- ]{20,}/g) || [];
       textRuns.push(...fallback.slice(0, 120));
@@ -301,7 +268,7 @@
     }
 
     const queryTerms = new Set(tokenize(query));
-    const selectedSentences = [];
+    const findings = [];
 
     retrieved.forEach((chunk) => {
       const sentences = chunk.content.match(/[^.!?]+[.!?]?/g) || [chunk.content];
@@ -311,53 +278,331 @@
           score: tokenize(sentence).filter((token) => queryTerms.has(token)).length
         }))
         .sort((a, b) => b.score - a.score)[0];
+      
       if (best?.sentence) {
-        const clean = sanitizeText(best.sentence);
-        if (!selectedSentences.includes(clean)) selectedSentences.push(clean);
+        let cleaned = best.sentence
+          .replace(/\[[a-zA-Z0-9_-]+-id\]/gi, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        
+        if (cleaned) {
+          findings.push({
+            documentName: chunk.documentName,
+            chunkNumber: chunk.chunkNumber,
+            sentence: cleaned
+          });
+        }
       }
     });
 
+    const findingsText = [
+      "Based on a local search of your documents, here are the most relevant findings:\n",
+      ...findings.map(f => `* **${f.documentName} (chunk ${f.chunkNumber})**: "${f.sentence}"`)
+    ].join("\n");
+
     const citations = retrieved.map((chunk) => `${chunk.documentName} chunk ${chunk.chunkNumber}`);
     return {
-      text: selectedSentences.slice(0, 3).join(" ") || sanitizeText(retrieved[0].content),
+      text: findingsText || "No readable content could be extracted from matches.",
       citations: [...new Set(citations)],
       context: retrieved
-        .map((chunk) => `[${chunk.documentName} chunk ${chunk.chunkNumber}] ${sanitizeText(chunk.content)}`)
+        .map((chunk) => `[${chunk.documentName} chunk ${chunk.chunkNumber}] ${chunk.content}`)
         .join("\n\n"),
       retrieved
     };
+  }
+
+  function cosineSimilarityVectors(a, b) {
+    let dot = 0;
+    let aMag = 0;
+    let bMag = 0;
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+      aMag += a[i] * a[i];
+      bMag += b[i] * b[i];
+    }
+    if (!aMag || !bMag) return 0;
+    return dot / (Math.sqrt(aMag) * Math.sqrt(bMag));
+  }
+
+  async function embedQuery(text, apiKey) {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "models/gemini-embedding-001",
+        content: {
+          parts: [{ text }]
+        }
+      })
+    });
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Gemini Embedding error: ${err || response.statusText}`);
+    }
+    const data = await response.json();
+    return data.embedding?.values || [];
+  }
+
+  async function embedChunks(chunks, apiKey) {
+    if (!chunks || !chunks.length) return [];
+    const BATCH = 50;
+    const results = [];
+    for (let i = 0; i < chunks.length; i += BATCH) {
+      const batch = chunks.slice(i, i + BATCH);
+      const requests = batch.map(chunk => ({
+        model: "models/gemini-embedding-001",
+        content: {
+          parts: [{ text: chunk.content }]
+        }
+      }));
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requests })
+      });
+      if (!response.ok) {
+        const err = await response.text();
+        throw new Error(`Gemini Batch Embedding error: ${err || response.statusText}`);
+      }
+      const data = await response.json();
+      if (!data.embeddings) {
+        throw new Error("Invalid response from Gemini Batch Embedding API");
+      }
+      results.push(...data.embeddings.map(e => e.values));
+    }
+    return results;
+  }
+
+  async function generateGeminiAnswer(query, retrievedChunks, settings) {
+    if (!retrievedChunks || !retrievedChunks.length) {
+      return {
+        text: "I could not find any relevant text in the processed documents to answer your question.",
+        citations: [],
+        context: "No chunks were retrieved.",
+        retrieved: []
+      };
+    }
+    const contextText = retrievedChunks
+      .map((chunk, idx) => `[Source ${idx + 1}: ${chunk.source || chunk.documentName} chunk ${chunk.chunkNumber}]\n${chunk.content}`)
+      .join("\n\n");
+
+    const systemPrompt = `You are a professional research AI assistant answering questions based on the user's document collections.
+Your goal is to write a highly polished, coherent, and grammatically perfect synthesis that directly answers the question using the context below.
+
+Guidelines:
+1. Ground your answer strictly in the provided Context Documents. If the context does not contain the answer or is not relevant, reply exactly with: "I could not find a strong match in the processed documents."
+2. Write in a continuous, fluent, and well-structured narrative style. Avoid copying sentences verbatim or stitching disconnected quotes together. Ensure smooth logical transitions between sentences.
+3. Handle placeholders: The source text might contain placeholders like "[source-id]" (which represent missing words like "representations", "embeddings", "hierarchical", "compositionality", or citations). When writing your answer, replace or omit these placeholders to produce natural, grammatically correct sentences. Reconstruct the missing words using the surrounding context and your general knowledge.
+4. Cite the sources in your answer text using the exact bracket format at the end of relevant statements (e.g., [Source 1], [Source 2]). Do NOT combine them as [Source 1, 2], write them as [Source 1][Source 2].
+5. Keep the response concise, clear, and professional.`;
+
+    const modelName = settings.geminiModel || "gemini-2.5-flash";
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${settings.geminiApiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: `${systemPrompt}\n\nContext Documents:\n${contextText}\n\nQuestion: ${query}` }]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.2
+        }
+      })
+    });
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Gemini Answer generation error: ${err || response.statusText}`);
+    }
+    const data = await response.json();
+    const answerText = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response generated by model.";
+
+    const citations = [];
+    retrievedChunks.forEach((chunk, idx) => {
+      const tag = `[Source ${idx + 1}]`;
+      if (answerText.includes(tag)) {
+        citations.push(`${chunk.source || chunk.documentName} chunk ${chunk.chunkNumber}`);
+      }
+    });
+
+    if (citations.length === 0 && retrievedChunks.length > 0 && !answerText.startsWith("I could not find")) {
+      citations.push(`${retrievedChunks[0].source || retrievedChunks[0].documentName} chunk ${retrievedChunks[0].chunkNumber}`);
+    }
+
+    return {
+      text: answerText,
+      citations: [...new Set(citations)],
+      context: contextText,
+      retrieved: retrievedChunks
+    };
+  }
+
+  async function queryPinecone(queryEmbedding, topK, projectId, settings) {
+    const cleanHost = settings.pineconeIndexHost.replace(/\/$/, "");
+    const response = await fetch(`${cleanHost}/query`, {
+      method: "POST",
+      headers: {
+        "Api-Key": settings.pineconeApiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        vector: queryEmbedding,
+        topK: topK,
+        includeMetadata: true,
+        namespace: projectId
+      })
+    });
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Pinecone Query error: ${err || response.statusText}`);
+    }
+    const data = await response.json();
+    const matches = data.matches || [];
+    return matches.map(match => ({
+      id: match.id,
+      score: match.score,
+      source: match.metadata?.source || "",
+      documentName: match.metadata?.source || "",
+      chunkNumber: match.metadata?.chunkNumber || 1,
+      content: match.metadata?.content || "",
+      documentId: match.metadata?.documentId || ""
+    }));
+  }
+
+  async function upsertToPinecone(chunks, projectId, settings) {
+    if (!chunks || !chunks.length) return;
+    const cleanHost = settings.pineconeIndexHost.replace(/\/$/, "");
+    const vectors = chunks.map(chunk => ({
+      id: chunk.id || `${projectId}-${chunk.source}-${chunk.chunkNumber}`,
+      values: chunk.embedding,
+      metadata: {
+        documentId: chunk.documentId || "",
+        projectId: projectId,
+        source: chunk.source,
+        chunkNumber: chunk.chunkNumber,
+        content: chunk.content
+      }
+    }));
+    
+    const BATCH = 100;
+    for (let i = 0; i < vectors.length; i += BATCH) {
+      const batch = vectors.slice(i, i + BATCH);
+      const response = await fetch(`${cleanHost}/vectors/upsert`, {
+        method: "POST",
+        headers: {
+          "Api-Key": settings.pineconeApiKey,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          vectors: batch,
+          namespace: projectId
+        })
+      });
+      if (!response.ok) {
+        const err = await response.text();
+        throw new Error(`Pinecone Upsert error: ${err || response.statusText}`);
+      }
+    }
+  }
+
+  async function deleteFromPinecone(docId, projectId, settings) {
+    const cleanHost = settings.pineconeIndexHost.replace(/\/$/, "");
+    const response = await fetch(`${cleanHost}/vectors/delete`, {
+      method: "POST",
+      headers: {
+        "Api-Key": settings.pineconeApiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        filter: {
+          documentId: docId
+        },
+        namespace: projectId
+      })
+    });
+    if (!response.ok) {
+      const err = await response.text();
+      console.error(`Pinecone Delete error: ${err || response.statusText}`);
+    }
+  }
+
+  async function deleteProjectFromPinecone(projectId, settings) {
+    const cleanHost = settings.pineconeIndexHost.replace(/\/$/, "");
+    const response = await fetch(`${cleanHost}/vectors/delete`, {
+      method: "POST",
+      headers: {
+        "Api-Key": settings.pineconeApiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        deleteAll: true,
+        namespace: projectId
+      })
+    });
+    if (!response.ok) {
+      const err = await response.text();
+      console.error(`Pinecone Delete Project Namespace error: ${err || response.statusText}`);
+    }
+  }
+
+  async function testCredentials(settings) {
+    const results = { gemini: false, pinecone: false, geminiErr: "", pineconeErr: "" };
+    if (settings.geminiApiKey) {
+      try {
+        await embedQuery("test connection", settings.geminiApiKey);
+        results.gemini = true;
+      } catch (err) {
+        results.geminiErr = err.message;
+      }
+    } else {
+      results.geminiErr = "No Gemini API key supplied.";
+    }
+
+    if (settings.pineconeApiKey && settings.pineconeIndexHost) {
+      try {
+        const cleanHost = settings.pineconeIndexHost.replace(/\/$/, "");
+        const response = await fetch(`${cleanHost}/query`, {
+          method: "POST",
+          headers: {
+            "Api-Key": settings.pineconeApiKey,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            vector: new Array(768).fill(0),
+            topK: 1,
+            namespace: "test-connection-namespace"
+          })
+        });
+        if (response.ok) {
+          results.pinecone = true;
+        } else {
+          const body = await response.text();
+          results.pineconeErr = `Pinecone replied with code ${response.status}: ${body}`;
+        }
+      } catch (err) {
+        results.pineconeErr = err.message;
+      }
+    } else if (settings.vectorDb === "pinecone") {
+      results.pineconeErr = "Pinecone API key or index host missing.";
+    }
+    return results;
   }
 
   window.RagEngine = {
     answer,
     chunkText,
     processFile,
-    retrieve
-  };
-
-  // Reprocess projects: rebuild chunks for each document using sanitized extraction text
-  // Accepts an array of projects and returns a new array with updated documents
-  window.RagEngine.reprocessProjects = function (projects) {
-    if (!Array.isArray(projects)) return projects;
-    return projects.map((project) => {
-      const docs = (project.documents || []).map((doc) => {
-        try {
-          const text = String(doc.extractedText || "");
-          const cleaned = sanitizeText(text);
-          const chunks = chunkText(cleaned, doc.name || doc.id || "doc");
-          return {
-            ...doc,
-            status: chunks.length ? "processed" : "pending",
-            extractedText: cleaned,
-            chunks,
-            chunkCount: chunks.length,
-            extractionError: chunks.length ? "" : (doc.extractionError || "No readable text after sanitization")
-          };
-        } catch (e) {
-          return { ...doc, status: "error", extractionError: String(e) };
-        }
-      });
-      return { ...project, documents: docs };
-    });
+    retrieve,
+    cosineSimilarityVectors,
+    embedQuery,
+    embedChunks,
+    generateGeminiAnswer,
+    queryPinecone,
+    upsertToPinecone,
+    deleteFromPinecone,
+    deleteProjectFromPinecone,
+    testCredentials
   };
 })();

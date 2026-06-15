@@ -7,13 +7,10 @@ const icons = {
   file: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
   send: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>',
   close: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
-  star: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17.3 5.6 20l1.1-6.4L2 9.6l6.5-.9L12 3l3.5 5.7L22 9.6l-4.7 3.9L18.4 20z"/></svg>',
-  starFilled: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .587l3.668 7.431L24 9.587l-6 5.847L19.335 24 12 19.897 4.665 24 6 15.434 0 9.587l8.332-1.569L12 .587z"/></svg>',
-  arrowLeft: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>'
+  arrowLeft: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>',
+  settings: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+  externalLink: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="m15 3 6 6m0-6v6m0-6H15"/></svg>'
 };
-
-// add edit/pencil icon
-icons.pencil = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"/><path d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>';
 
 const storageKey = "inventive-rag-ui";
 
@@ -40,7 +37,6 @@ function buildSeedDocument(id, name, status, uploadedAt) {
     name,
     type: name.split(".").pop().toUpperCase(),
     status,
-    indexStatus: status === "processed" ? "local" : "not_started",
     uploadedAt,
     extractedText: text,
     chunks,
@@ -56,6 +52,17 @@ const seedState = {
   errors: {},
   search: "",
   sort: "created-desc",
+  settings: {
+    ragMode: "local",
+    vectorDb: "local",
+    geminiApiKey: "",
+    pineconeApiKey: "",
+    pineconeIndexHost: "",
+    geminiModel: "gemini-2.5-flash"
+  },
+  settingsTab: "mode",
+  settingsTestStatus: null,
+  isQuerying: false,
   projects: [
     {
       id: "project-1",
@@ -106,13 +113,16 @@ let state = loadState();
 function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey));
-    return saved ? migrateState({ ...seedState, ...saved, errors: {}, modal: null }) : structuredClone(seedState);
+    return saved ? migrateState({ ...seedState, ...saved, errors: {}, modal: null, settingsTestStatus: null, isQuerying: false }) : structuredClone(seedState);
   } catch {
     return structuredClone(seedState);
   }
 }
 
 function migrateState(nextState) {
+  if (!nextState.settings) {
+    nextState.settings = structuredClone(seedState.settings);
+  }
   return {
     ...nextState,
     projects: nextState.projects.map((project) => ({
@@ -127,7 +137,6 @@ function migrateState(nextState) {
             extractedText: sampleText,
             chunks,
             chunkCount: chunks.length,
-            indexStatus: doc.indexStatus || "local",
             extractionError: ""
           };
         }
@@ -135,7 +144,6 @@ function migrateState(nextState) {
           return {
             ...doc,
             status: "pending",
-            indexStatus: "not_started",
             chunkCount: 0,
             extractionError: "Upload this file again to build its retrieval index."
           };
@@ -143,8 +151,7 @@ function migrateState(nextState) {
         return {
           ...doc,
           chunks: doc.chunks || [],
-          chunkCount: doc.chunkCount || doc.chunks?.length || 0,
-          indexStatus: doc.indexStatus || (doc.status === "processed" ? "local" : "not_started")
+          chunkCount: doc.chunkCount || doc.chunks?.length || 0
         };
       })
     }))
@@ -157,7 +164,8 @@ function saveState() {
     route: state.route,
     search: state.search,
     sort: state.sort,
-    projects: state.projects
+    projects: state.projects,
+    settings: state.settings
   };
   localStorage.setItem(storageKey, JSON.stringify(persistable));
 }
@@ -187,7 +195,6 @@ async function loadUserDataFromDB(userId) {
         extractedText: d.extracted_text || "",
         extractionError: d.extraction_error || "",
         chunkCount: d.chunk_count || 0,
-        indexStatus: d.index_status || (d.chunk_count ? "local" : "not_started"),
         chunks: (allChunks || [])
           .filter((c) => c.document_id === d.id)
           .map((c) => ({
@@ -223,19 +230,7 @@ async function loadUserDataFromDB(userId) {
 function setState(next) {
   state = { ...state, ...next };
   saveState();
-  // Preserve search focus/caret across re-renders when typing in the search box
-  const preserveSearchFocus = !!window._projectSearchFocused;
   render();
-  if (preserveSearchFocus) {
-    const input = document.querySelector('#projectSearch');
-    if (input) {
-      input.focus();
-      const len = input.value.length;
-      try { input.setSelectionRange(len, len); } catch (e) { /* ignore */ }
-    }
-    // clear the flag after restoring focus
-    window._projectSearchFocused = false;
-  }
 }
 
 function navigate(route) {
@@ -283,6 +278,7 @@ function render() {
         ${renderHeader()}
         ${routeName === "project" ? renderProjectPage() : renderDashboard()}
         ${state.modal === "new-project" ? renderNewProjectModal() : ""}
+        ${state.modal === "settings" ? renderSettingsModal() : ""}
       </div>
     `;
   }
@@ -293,7 +289,9 @@ function renderHeader() {
   return `
     <header class="header">
       <div class="brand" aria-label="Inventive brand"><span class="brand-mark"></span><span>Inventive</span></div>
+      <button class="nav-button" data-action="home" title="Home">${icons.home} Home</button>
       <div class="header-actions">
+        <button class="secondary-button" data-action="open-settings" style="margin-right: 8px;">${icons.settings} Settings</button>
         <button class="danger-button" data-action="logout" title="Log out">${icons.logOut} Logout</button>
       </div>
     </header>
@@ -308,7 +306,7 @@ function renderAuth() {
       <section class="auth-panel">
         <div class="brand"><span class="brand-mark"></span><span>Inventive</span></div>
         <div class="auth-statement">
-          <h1>Search your knowledge.</h1>
+          <h1>Search your knowledge. Cite every answer.</h1>
           <p>A clean RAG workspace for organizing document collections, asking precise questions, and tracing responses back to their source material.</p>
           <div class="auth-accent"></div>
         </div>
@@ -370,6 +368,7 @@ function renderDashboard() {
     <main class="page">
       <div class="section-head">
         <div>
+          <p class="eyebrow">Home</p>
           <h1>Projects</h1>
           <p>Manage document collections, track ingestion status, and open a project to ask cited questions.</p>
         </div>
@@ -378,17 +377,18 @@ function renderDashboard() {
       <section class="toolbar" aria-label="Project controls">
         <div class="field search-field">
           <label for="projectSearch">Search projects</label>
+          ${icons.search}
           <input id="projectSearch" value="${escapeHtml(state.search)}" placeholder="Find by project name" />
         </div>
         <div class="field">
-          <label for="projectSort">Sort / Filter</label>
+          <label for="projectSort">Sort by</label>
           <select id="projectSort">
             <option value="created-desc" ${state.sort === "created-desc" ? "selected" : ""}>Newest first</option>
             <option value="name-asc" ${state.sort === "name-asc" ? "selected" : ""}>Name A to Z</option>
             <option value="docs-desc" ${state.sort === "docs-desc" ? "selected" : ""}>Most documents</option>
-            <option value="starred-only" ${state.sort === "starred-only" ? "selected" : ""}>Flagged / Starred only</option>
           </select>
         </div>
+        <button class="secondary-button" data-action="open-new-project">${icons.plus} Create</button>
       </section>
       ${projects.length ? `
         <section class="project-grid" aria-label="Project list">
@@ -410,10 +410,6 @@ function filteredProjects() {
   const needle = state.search.trim().toLowerCase();
   return state.projects
     .filter((project) => project.name.toLowerCase().includes(needle))
-    .filter((project) => {
-      if (state.sort === "starred-only") return project.starred === true;
-      return true;
-    })
     .sort((a, b) => {
       if (state.sort === "name-asc") return a.name.localeCompare(b.name);
       if (state.sort === "docs-desc") return b.documents.length - a.documents.length;
@@ -423,21 +419,16 @@ function filteredProjects() {
 
 function renderProjectCard(project) {
   return `
-    <div class="project-card">
-      <button class="card-main" data-action="open-project" data-project-id="${project.id}">
-        <span>
-          <h2>${escapeHtml(project.name)}</h2>
-          <p>Created ${formatDate(project.createdAt)}</p>
-        </span>
-      </button>
+    <button class="project-card" data-action="open-project" data-project-id="${project.id}">
+      <span>
+        <h2>${escapeHtml(project.name)}</h2>
+        <p>Created ${formatDate(project.createdAt)}</p>
+      </span>
       <span class="card-meta">
         <span>${project.documents.filter((doc) => doc.status === "processed").length} processed</span>
         <span class="count-pill">${project.documents.length} docs</span>
-            <button class="icon-button ${project.starred ? 'starred' : ''}" title="Toggle star" data-action="toggle-star" data-project-id="${project.id}">${project.starred ? icons.starFilled : icons.star}</button>
-            <button class="icon-button" title="Rename project" data-action="rename-project" data-project-id="${project.id}">${icons.pencil}</button>
-            <button class="icon-button" title="Delete project" data-action="delete-project" data-project-id="${project.id}">${icons.trash}</button>
       </span>
-    </div>
+    </button>
   `;
 }
 
@@ -461,6 +452,157 @@ function renderNewProjectModal() {
           <div class="modal-actions">
             <button class="secondary-button" data-action="close-modal" type="button">Cancel</button>
             <button class="primary-button" type="submit">${icons.plus} Create project</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  `;
+}
+
+async function runConnectionTest() {
+  setState({ settingsTestStatus: { running: true } });
+  
+  const geminiApiKeyInput = document.querySelector("#geminiApiKey");
+  const pineconeApiKeyInput = document.querySelector("#pineconeApiKey");
+  const pineconeIndexHostInput = document.querySelector("#pineconeIndexHost");
+  
+  const testSettings = {
+    ...state.settings,
+    geminiApiKey: geminiApiKeyInput ? geminiApiKeyInput.value.trim() : state.settings.geminiApiKey,
+    pineconeApiKey: pineconeApiKeyInput ? pineconeApiKeyInput.value.trim() : state.settings.pineconeApiKey,
+    pineconeIndexHost: pineconeIndexHostInput ? pineconeIndexHostInput.value.trim() : state.settings.pineconeIndexHost
+  };
+  
+  const results = await window.RagEngine.testCredentials(testSettings);
+  setState({
+    settingsTestStatus: {
+      running: false,
+      gemini: results.gemini,
+      pinecone: results.pinecone,
+      geminiErr: results.geminiErr,
+      pineconeErr: results.pineconeErr
+    }
+  });
+}
+
+function renderSettingsModal() {
+  const settings = state.settings;
+  const activeTab = state.settingsTab || "mode";
+  const testStatus = state.settingsTestStatus;
+
+  let testStatusHtml = "";
+  if (testStatus) {
+    if (testStatus.running) {
+      testStatusHtml = `<div class="test-status-box info"><span class="spinner inline"></span> Testing API connectivity...</div>`;
+    } else {
+      const geminiStatus = settings.ragMode === "gemini" 
+        ? (testStatus.gemini ? `<span class="badge success">Gemini: OK</span>` : `<span class="badge error" title="${escapeHtml(testStatus.geminiErr)}">Gemini: Failed</span>`) 
+        : "";
+      const pineconeStatus = settings.vectorDb === "pinecone" 
+        ? (testStatus.pinecone ? `<span class="badge success">Pinecone: OK</span>` : `<span class="badge error" title="${escapeHtml(testStatus.pineconeErr)}">Pinecone: Failed</span>`) 
+        : "";
+      testStatusHtml = `
+        <div class="test-results">
+          ${geminiStatus}
+          ${pineconeStatus}
+          ${testStatus.geminiErr ? `<p class="error-msg"><small>Gemini: ${escapeHtml(testStatus.geminiErr)}</small></p>` : ""}
+          ${testStatus.pineconeErr ? `<p class="error-msg"><small>Pinecone: ${escapeHtml(testStatus.pineconeErr)}</small></p>` : ""}
+        </div>
+      `;
+    }
+  }
+
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <div class="modal-head">
+          <div>
+            <h2 id="settingsTitle">RAG Configurations</h2>
+            <p>Select your RAG engine, storage option, and configure API credentials.</p>
+          </div>
+          <button class="icon-button" data-action="close-modal" title="Close">${icons.close}</button>
+        </div>
+        
+        <div class="settings-tabs" role="tablist" aria-label="Settings categories">
+          <button class="settings-tab ${activeTab === "mode" ? "active" : ""}" data-action="set-settings-tab" data-tab="mode" type="button">1. Engine & Database</button>
+          <button class="settings-tab ${activeTab === "credentials" ? "active" : ""}" data-action="set-settings-tab" data-tab="credentials" type="button">2. API Credentials</button>
+        </div>
+
+        <form class="form-grid settings-form" data-form="settings-save">
+          
+          ${activeTab === "mode" ? `
+            <div class="settings-section">
+              <label class="section-label">RAG answering engine</label>
+              <div class="radio-cards">
+                <label class="radio-card ${settings.ragMode === "local" ? "selected" : ""}">
+                  <input type="radio" name="ragMode" value="local" ${settings.ragMode === "local" ? "checked" : ""} />
+                  <span class="card-title">Local TF-IDF (No API Keys)</span>
+                  <span class="card-desc">Runs 100% locally in your browser. Extracts direct sentences from documents. Basic accuracy.</span>
+                </label>
+                <label class="radio-card ${settings.ragMode === "gemini" ? "selected" : ""}">
+                  <input type="radio" name="ragMode" value="gemini" ${settings.ragMode === "gemini" ? "checked" : ""} />
+                  <span class="card-title">Gemini AI Engine</span>
+                  <span class="card-desc">Uses Gemini <b>text-embedding-004</b> for search and generative LLM models to write professional, cited answers.</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-section ${settings.ragMode === "gemini" ? "" : "disabled"}">
+              <label class="section-label">Generative model</label>
+              <select name="geminiModel" ${settings.ragMode === "gemini" ? "" : "disabled"}>
+                <option value="gemini-2.5-flash" ${settings.geminiModel === "gemini-2.5-flash" ? "selected" : ""}>Gemini 2.5 Flash (Recommended - Fastest)</option>
+                <option value="gemini-1.5-flash" ${settings.geminiModel === "gemini-1.5-flash" ? "selected" : ""}>Gemini 1.5 Flash</option>
+                <option value="gemini-2.5-pro" ${settings.geminiModel === "gemini-2.5-pro" ? "selected" : ""}>Gemini 2.5 Pro (Most Powerful)</option>
+              </select>
+            </div>
+
+            <div class="settings-section ${settings.ragMode === "gemini" ? "" : "disabled"}">
+              <label class="section-label">Vector storage / search database</label>
+              <div class="radio-cards">
+                <label class="radio-card ${settings.vectorDb === "local" ? "selected" : ""} ${settings.ragMode === "gemini" ? "" : "disabled"}">
+                  <input type="radio" name="vectorDb" value="local" ${settings.vectorDb === "local" ? "checked" : ""} ${settings.ragMode === "gemini" ? "" : "disabled"} />
+                  <span class="card-title">In-Memory Semantic Search</span>
+                  <span class="card-desc">Stores Gemini embeddings in local state / Supabase. Calculates cosine similarity instantly in the browser. (No DB signup needed).</span>
+                </label>
+                <label class="radio-card ${settings.vectorDb === "pinecone" ? "selected" : ""} ${settings.ragMode === "gemini" ? "" : "disabled"}">
+                  <input type="radio" name="vectorDb" value="pinecone" ${settings.vectorDb === "pinecone" ? "checked" : ""} ${settings.ragMode === "gemini" ? "" : "disabled"} />
+                  <span class="card-title">Pinecone Vector Database</span>
+                  <span class="card-desc">Saves and queries embeddings in your Pinecone index. Ideal for large scaling documents.</span>
+                </label>
+              </div>
+            </div>
+          ` : `
+            <div class="settings-section">
+              <div class="field">
+                <label for="geminiApiKey">Gemini API Key</label>
+                <input id="geminiApiKey" name="geminiApiKey" type="password" value="${escapeHtml(settings.geminiApiKey)}" placeholder="AIzaSy..." />
+                <span class="field-help">Get your API key from the <a href="https://aistudio.google.com/" target="_blank" rel="noopener">Google AI Studio ${icons.externalLink}</a>.</span>
+              </div>
+            </div>
+
+            <div class="settings-section ${settings.vectorDb === "pinecone" && settings.ragMode === "gemini" ? "" : "disabled-fields"}">
+              <div class="field">
+                <label for="pineconeApiKey">Pinecone API Key</label>
+                <input id="pineconeApiKey" name="pineconeApiKey" type="password" value="${escapeHtml(settings.pineconeApiKey)}" placeholder="pcsk_..." ${settings.vectorDb === "pinecone" && settings.ragMode === "gemini" ? "" : "disabled"} />
+              </div>
+              <div class="field" style="margin-top: 10px;">
+                <label for="pineconeIndexHost">Pinecone Index Host</label>
+                <input id="pineconeIndexHost" name="pineconeIndexHost" type="text" value="${escapeHtml(settings.pineconeIndexHost)}" placeholder="https://your-index-xxxx.svc.pinecone.io" ${settings.vectorDb === "pinecone" && settings.ragMode === "gemini" ? "" : "disabled"} />
+                <span class="field-help">Must be created with <b>768 dimensions</b> (matching Google embeddings).</span>
+              </div>
+            </div>
+          `}
+          
+          ${state.errors.settings ? `<div class="error-box">${escapeHtml(state.errors.settings)}</div>` : ""}
+          ${testStatusHtml}
+
+          <div class="modal-actions settings-actions">
+            ${settings.ragMode === "gemini" ? `
+              <button class="secondary-button" type="button" data-action="test-connection">Test Connection</button>
+            ` : ""}
+            <div style="flex-grow: 1;"></div>
+            <button class="secondary-button" data-action="close-modal" type="button">Cancel</button>
+            <button class="primary-button" type="submit">Save settings</button>
           </div>
         </form>
       </section>
@@ -533,7 +675,23 @@ function renderProjectPage() {
             </div>
           </div>
           <section class="conversation" aria-label="Conversation">
-            ${renderConversation(project)}
+            ${project.conversation.length ? project.conversation.map((message) => renderMessage(message, project)).join("") : `
+              ${state.isQuerying ? "" : `
+                <div class="empty-state">
+                  <div>
+                    <h2>No questions yet</h2>
+                    <p>Ask a question to generate a sourced answer.</p>
+                  </div>
+                </div>
+              `}
+            `}
+            ${state.isQuerying ? `
+              <article class="message ai loading-skeleton" aria-live="polite">
+                <div class="message-role"><span>AI is thinking...</span></div>
+                <div class="skeleton-line"></div>
+                <div class="skeleton-line short"></div>
+              </article>
+            ` : ""}
           </section>
         </div>
       </section>
@@ -542,9 +700,6 @@ function renderProjectPage() {
 }
 
 function renderDocumentRow(projectId, doc) {
-  const detail = doc.status === "processed"
-    ? `${doc.chunkCount || 0} chunks · ${indexStatusLabel(doc.indexStatus)}`
-    : escapeHtml(doc.extractionError || "Waiting for text extraction");
   return `
     <tr>
       <td>
@@ -552,7 +707,7 @@ function renderDocumentRow(projectId, doc) {
           ${icons.file}
           <span>
             <span title="${escapeHtml(doc.name)}">${escapeHtml(doc.name)}</span>
-            <small class="doc-detail">${detail}</small>
+            <small class="doc-detail">${doc.status === "processed" ? `${doc.chunkCount || 0} indexed chunks` : escapeHtml(doc.extractionError || "Waiting for processing")}</small>
           </span>
         </span>
       </td>
@@ -561,17 +716,6 @@ function renderDocumentRow(projectId, doc) {
       <td><button class="icon-button" data-action="delete-doc" data-project-id="${projectId}" data-doc-id="${doc.id}" title="Delete document">${icons.trash}</button></td>
     </tr>
   `;
-}
-
-function indexStatusLabel(status) {
-  const labels = {
-    indexed: "vector indexed",
-    indexing: "vector indexing",
-    index_failed: "vector indexing failed, using local RAG",
-    local: "local RAG ready",
-    skipped: "local RAG ready"
-  };
-  return labels[status] || "local RAG ready";
 }
 
 function renderMessage(message, project) {
@@ -610,63 +754,17 @@ function buildContext(project) {
   return `Indexed sources: ${processed.map((doc) => `${doc.name} (${doc.chunkCount || 0} chunks)`).join(", ")}.`;
 }
 
-function renderConversation(project) {
-  const conv = project.conversation || [];
-  if (!conv.length) return `
-    <div class="empty-state">
-      <div>
-        <h2>No questions yet</h2>
-        <p>Ask a question to generate a sourced answer.</p>
-      </div>
-    </div>
-  `;
-
-  // Find all user message indices, then render them newest-first with their following AI reply (if any)
-  const userIndices = conv
-    .map((m, i) => (m.role === 'user' ? i : -1))
-    .filter((i) => i >= 0);
-
-  return userIndices
-    .slice()
-    .reverse()
-    .map((i) => {
-      const userMsg = conv[i];
-      const aiMsg = conv.slice(i + 1).find((m) => m.role === 'ai');
-      return `${renderMessage(userMsg, project)}${aiMsg ? renderMessage(aiMsg, project) : ''}`;
-    })
-    .join('');
-}
-
 function bindEvents() {
-  // Use a single delegated listener for all data-action clicks to avoid
-  // missing handlers after re-renders and to simplify event routing.
-  if (!window._delegatedActionsBound) {
-    document.addEventListener('click', (event) => {
-      const el = event.target.closest('[data-action]');
-      if (!el) return;
-      handleAction({ currentTarget: el, preventDefault: () => {} });
-    });
-    window._delegatedActionsBound = true;
-  }
+  document.querySelectorAll("[data-action]").forEach((element) => {
+    element.addEventListener("click", handleAction);
+  });
   document.querySelectorAll("form").forEach((form) => {
     form.addEventListener("submit", handleSubmit);
   });
 
   const projectSearch = document.querySelector("#projectSearch");
   if (projectSearch) {
-    // Debounce search updates to avoid re-rendering on every keystroke
-    projectSearch.addEventListener("input", (event) => {
-      const v = event.target.value;
-      // update in-memory state immediately so UI that reads state.search can access it
-      state.search = v;
-      // mark that the user is typing in the search box so we can preserve focus across re-renders
-      window._projectSearchFocused = true;
-      if (window._projectSearchTimeout) clearTimeout(window._projectSearchTimeout);
-      window._projectSearchTimeout = setTimeout(() => {
-        setState({ search: v });
-        window._projectSearchTimeout = null;
-      }, 250);
-    });
+    projectSearch.addEventListener("input", (event) => setState({ search: event.target.value }));
   }
 
   const projectSort = document.querySelector("#projectSort");
@@ -691,7 +789,22 @@ function bindEvents() {
   const backdrop = document.querySelector(".modal-backdrop");
   if (backdrop) {
     backdrop.addEventListener("click", (event) => {
-      if (event.target === backdrop) setState({ modal: null, errors: {} });
+      if (event.target === backdrop) setState({ modal: null, errors: {}, settingsTestStatus: null });
+    });
+  }
+
+  const settingsForm = document.querySelector(".settings-form");
+  if (settingsForm) {
+    settingsForm.querySelectorAll("input, select").forEach(input => {
+      input.addEventListener("change", (e) => {
+        const name = e.target.name;
+        const value = e.target.value;
+        const newSettings = { ...state.settings, [name]: value };
+        if (name === "ragMode" && value === "local") {
+          newSettings.vectorDb = "local";
+        }
+        setState({ settings: newSettings });
+      });
     });
   }
 }
@@ -713,23 +826,23 @@ async function handleAction(event) {
   if (action === "open-new-project") {
     setState({ modal: "new-project", errors: {} });
   }
+  if (action === "open-settings") {
+    setState({ modal: "settings", errors: {}, settingsTab: "mode", settingsTestStatus: null });
+  }
+  if (action === "set-settings-tab") {
+    setState({ settingsTab: target.dataset.tab });
+  }
+  if (action === "test-connection") {
+    runConnectionTest();
+  }
   if (action === "close-modal") {
-    setState({ modal: null, errors: {} });
+    setState({ modal: null, errors: {}, settingsTestStatus: null });
   }
   if (action === "open-project") {
     navigate({ name: "project", projectId: target.dataset.projectId });
   }
   if (action === "delete-doc") {
     deleteDocument(target.dataset.projectId, target.dataset.docId);
-  }
-  if (action === "delete-project") {
-    deleteProject(target.dataset.projectId);
-  }
-  if (action === "toggle-star") {
-    toggleStarProject(target.dataset.projectId);
-  }
-  if (action === "rename-project") {
-    renameProject(target.dataset.projectId);
   }
 }
 
@@ -802,6 +915,41 @@ async function handleSubmit(event) {
   if (formType === "query") {
     return submitQuery(form.dataset.projectId, data.get("queryText")?.trim());
   }
+
+  if (formType === "settings-save") {
+    const ragMode = data.get("ragMode");
+    const vectorDb = data.get("vectorDb") || "local";
+    const geminiModel = data.get("geminiModel") || "gemini-2.5-flash";
+    const geminiApiKey = data.get("geminiApiKey")?.trim() || "";
+    const pineconeApiKey = data.get("pineconeApiKey")?.trim() || "";
+    const pineconeIndexHost = data.get("pineconeIndexHost")?.trim() || "";
+
+    if (ragMode === "gemini" && !geminiApiKey) {
+      return setState({ errors: { settings: "Please provide a Gemini API Key to use Gemini mode." } });
+    }
+    if (ragMode === "gemini" && vectorDb === "pinecone") {
+      if (!pineconeApiKey || !pineconeIndexHost) {
+        return setState({ errors: { settings: "Please provide both Pinecone API Key and Index Host for Pinecone mode." } });
+      }
+    }
+
+    const updatedSettings = {
+      ragMode,
+      vectorDb,
+      geminiModel,
+      geminiApiKey,
+      pineconeApiKey,
+      pineconeIndexHost
+    };
+
+    setState({
+      settings: updatedSettings,
+      modal: null,
+      errors: {},
+      settingsTestStatus: null
+    });
+    return;
+  }
 }
 
 async function uploadDocuments(projectId, files) {
@@ -825,7 +973,6 @@ async function uploadDocuments(projectId, files) {
         name: file.name,
         type,
         status: "pending",
-        indexStatus: "not_started",
         uploadedAt: row?.uploaded_at || new Date().toISOString(),
         chunks: [],
         chunkCount: 0,
@@ -850,39 +997,67 @@ async function uploadDocuments(projectId, files) {
       const baseDoc = pendingDocs[index];
       try {
         const processed = await window.RagEngine.processFile(file);
+        let chunks = processed.chunks;
+
+        if (state.settings.ragMode === "gemini") {
+          try {
+            // Update UI status to show vector embedding is running
+            setState({
+              projects: state.projects.map((project) => {
+                if (project.id !== projectId) return project;
+                return {
+                  ...project,
+                  documents: project.documents.map((d) => d.id === baseDoc.id ? { ...d, extractionError: "Generating vector embeddings..." } : d)
+                };
+              })
+            });
+
+            const embeddings = await window.RagEngine.embedChunks(chunks, state.settings.geminiApiKey);
+            chunks = chunks.map((chunk, idx) => ({
+              ...chunk,
+              documentId: baseDoc.id,
+              embedding: embeddings[idx]
+            }));
+
+            if (state.settings.vectorDb === "pinecone") {
+              // Update UI status to show Pinecone syncing
+              setState({
+                projects: state.projects.map((project) => {
+                  if (project.id !== projectId) return project;
+                  return {
+                    ...project,
+                    documents: project.documents.map((d) => d.id === baseDoc.id ? { ...d, extractionError: "Syncing with Pinecone..." } : d)
+                  };
+                })
+              });
+              await window.RagEngine.upsertToPinecone(chunks, projectId, state.settings);
+            }
+          } catch (embedErr) {
+            console.error("Vector indexing error:", embedErr);
+            throw new Error(`Vector indexing failed: ${embedErr.message}`);
+          }
+        }
+
         const finalDoc = {
           ...baseDoc,
           status: "processed",
           extractedText: processed.extractedText,
-          chunks: processed.chunks,
-          chunkCount: processed.chunkCount,
-          indexStatus: "local"
+          chunks: chunks,
+          chunkCount: chunks.length
         };
         // 4. Persist processed state + chunks to DB
         await window.InventiveDB.updateDocument(baseDoc.id, {
           status: "processed",
           extracted_text: processed.extractedText,
-          chunk_count: processed.chunkCount,
+          chunk_count: chunks.length,
           extraction_error: ""
         });
-        await window.InventiveDB.saveChunks(baseDoc.id, projectId, processed.chunks);
-        // If the advanced backend is configured, index chunks into Pinecone under the project namespace.
-        try {
-          if (window.FidEngine?.remoteAvailable && await window.FidEngine.remoteAvailable()) {
-            finalDoc.indexStatus = "indexing";
-            const ingestResult = await window.FidEngine.ingestChunksToPinecone(projectId, baseDoc.id, processed.chunks);
-            finalDoc.indexStatus = ingestResult?.error ? "index_failed" : "indexed";
-          }
-        } catch (e) {
-          finalDoc.indexStatus = "index_failed";
-          console.warn("Pinecone ingest skipped:", e?.message || e);
-        }
+        await window.InventiveDB.saveChunks(baseDoc.id, projectId, chunks);
         return finalDoc;
       } catch (err) {
         const finalDoc = {
           ...baseDoc,
           status: "failed",
-          indexStatus: "not_started",
           extractionError: err.message || "Could not extract readable text from this file."
         };
         await window.InventiveDB.updateDocument(baseDoc.id, {
@@ -908,60 +1083,20 @@ async function uploadDocuments(projectId, files) {
 async function deleteDocument(projectId, docId) {
   const { error } = await window.InventiveDB.deleteDocument(docId);
   if (error) { console.error("[DB] deleteDocument:", error); }
+
+  if (state.settings.ragMode === "gemini" && state.settings.vectorDb === "pinecone") {
+    try {
+      await window.RagEngine.deleteFromPinecone(docId, projectId, state.settings);
+    } catch (pineErr) {
+      console.error("Failed to delete vectors from Pinecone:", pineErr);
+    }
+  }
+
   const nextProjects = state.projects.map((project) => {
     if (project.id !== projectId) return project;
     return { ...project, documents: project.documents.filter((doc) => doc.id !== docId) };
   });
   setState({ projects: nextProjects, errors: {} });
-}
-
-async function deleteProject(projectId) {
-  if (!confirm('Delete this project and all its documents? This cannot be undone.')) return;
-  try {
-    const { error } = await window.InventiveDB.deleteProject(projectId);
-    if (error) console.error('[DB] deleteProject:', error);
-  } catch (e) {
-    console.error('deleteProject error:', e);
-  }
-  const nextProjects = state.projects.filter((p) => p.id !== projectId);
-  // If we were viewing the deleted project, go back to dashboard
-  const nextRoute = state.route.name === 'project' && state.route.projectId === projectId ? { name: 'dashboard' } : state.route;
-  setState({ projects: nextProjects, route: nextRoute, errors: {} });
-}
-
-async function toggleStarProject(projectId) {
-  const project = getProject(projectId);
-  if (!project) return;
-  const newVal = !project.starred;
-  // Optimistic UI
-  const nextProjects = state.projects.map((p) => (p.id === projectId ? { ...p, starred: newVal } : p));
-  setState({ projects: nextProjects, errors: {} });
-  try {
-    if (window.InventiveDB && window.InventiveDB.updateProject) {
-      await window.InventiveDB.updateProject(projectId, { starred: newVal });
-    }
-  } catch (e) {
-    console.error('toggleStarProject DB error:', e);
-  }
-}
-
-async function renameProject(projectId) {
-  const project = getProject(projectId);
-  if (!project) return;
-  const newName = prompt('Rename project', project.name);
-  if (!newName) return;
-  const trimmed = newName.trim();
-  if (!trimmed) return alert('Project name cannot be empty.');
-  // Optimistic update
-  const nextProjects = state.projects.map((p) => (p.id === projectId ? { ...p, name: trimmed } : p));
-  setState({ projects: nextProjects, errors: {} });
-  try {
-    if (window.InventiveDB && window.InventiveDB.updateProject) {
-      await window.InventiveDB.updateProject(projectId, { name: trimmed });
-    }
-  } catch (e) {
-    console.error('renameProject DB error:', e);
-  }
 }
 
 async function submitQuery(projectId, text) {
@@ -971,87 +1106,127 @@ async function submitQuery(projectId, text) {
 
   const userMsg = { role: "user", text, citations: [], context: "" };
 
-  // Optimistic UI update: show user message first
-  setState({ projects: state.projects.map((p) => (p.id === projectId ? { ...p, conversation: [...p.conversation, userMsg] } : p)), errors: {} });
+  if (state.settings.ragMode === "local") {
+    const ragAnswer = window.RagEngine.answer(text, project.documents);
+    const aiMsg = { role: "ai", text: ragAnswer.text, citations: ragAnswer.citations, context: ragAnswer.context };
 
-  // Persist user turn
-  await window.InventiveDB.addMessage(projectId, userId, "user", text, [], "");
+    const nextProjects = state.projects.map((p) => {
+      if (p.id !== projectId) return p;
+      return { ...p, conversation: [...p.conversation, userMsg, aiMsg] };
+    });
+    setState({ projects: nextProjects, errors: {} });
 
-  // If Pinecone + FiD available, use it; otherwise fallback to local RagEngine
-  if (window.PineconeClient?.isConfigured && window.PineconeClient.isConfigured() && window.FidEngine) {
+    await window.InventiveDB.addMessage(projectId, userId, "user", text, [], "");
+    await window.InventiveDB.addMessage(projectId, userId, "ai", ragAnswer.text, ragAnswer.citations, ragAnswer.context);
+  } else {
+    setState({
+      isQuerying: true,
+      projects: state.projects.map((p) => {
+        if (p.id !== projectId) return p;
+        return { ...p, conversation: [...p.conversation, userMsg] };
+      }),
+      errors: {}
+    });
+
     try {
-      const res = await window.FidEngine.queryFiD(projectId, text, 6);
-      if (res && res.error) {
-        throw new Error(res.error);
+      const queryEmbedding = await window.RagEngine.embedQuery(text, state.settings.geminiApiKey);
+
+      let retrieved = [];
+      if (state.settings.vectorDb === "pinecone") {
+        retrieved = await window.RagEngine.queryPinecone(queryEmbedding, 4, projectId, state.settings);
+      } else {
+        const chunks = project.documents
+          .filter((doc) => doc.status === "processed")
+          .flatMap((doc) => (doc.chunks || []).map((chunk) => ({ ...chunk, documentName: doc.name })));
+        
+        const chunksWithEmbeddings = chunks.filter((c) => c.embedding && c.embedding.length > 0);
+        if (chunksWithEmbeddings.length > 0) {
+          retrieved = chunksWithEmbeddings
+            .map((chunk) => ({
+              ...chunk,
+              score: window.RagEngine.cosineSimilarityVectors(queryEmbedding, chunk.embedding)
+            }))
+            .filter((chunk) => chunk.score > 0.1)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 4);
+        }
       }
-      const { answer, matches } = res;
-      const aiText = answer?.text || "";
-      const citations = (matches || []).map((m) => {
-        const md = m.metadata || {};
-        return md.document_id ? `${md.document_id} chunk ${md.chunk_number || "?"}` : m.id;
+
+      const ragAnswer = await window.RagEngine.generateGeminiAnswer(text, retrieved, state.settings);
+      const aiMsg = { role: "ai", text: ragAnswer.text, citations: ragAnswer.citations, context: ragAnswer.context };
+
+      setState({
+        isQuerying: false,
+        projects: state.projects.map((p) => {
+          if (p.id !== projectId) return p;
+          return { ...p, conversation: [...p.conversation, aiMsg] };
+        })
       });
-      const aiMsg = { role: "ai", text: aiText, citations, context: passagesContext(matches) };
 
-      // Append AI reply to UI
-      setState({ projects: state.projects.map((p) => (p.id === projectId ? { ...p, conversation: [...p.conversation, aiMsg] } : p)), errors: {} });
-
-      // Persist AI turn
-      await window.InventiveDB.addMessage(projectId, userId, "ai", aiText, citations, aiMsg.context);
-      return;
-    } catch (e) {
-      console.error("FiD query failed:", e);
-      // fall through to local fallback
+      await window.InventiveDB.addMessage(projectId, userId, "user", text, [], "");
+      await window.InventiveDB.addMessage(projectId, userId, "ai", ragAnswer.text, ragAnswer.citations, ragAnswer.context);
+    } catch (err) {
+      console.error("Gemini RAG Query error:", err);
+      setState({
+        isQuerying: false,
+        errors: { query: err.message || "Failed to generate answer. Check API keys and network." }
+      });
     }
   }
+}
 
-  // Fallback: local RagEngine answer
-  const ragAnswer = window.RagEngine.answer(text, project.documents);
-  console.debug('RagEngine.answer result:', ragAnswer);
-  // If OpenAI generation is available via the backend, call it to make the output more readable.
-  let finalText = ragAnswer.text;
+async function loadEnvFile() {
   try {
-    if (window.FidEngine?.openAIAvailable && await window.FidEngine.openAIAvailable()) {
-      try {
-        const gen = await window.FidEngine.generateFromChunks(text, ragAnswer.retrieved || []);
-        console.debug('generateFromChunks result:', gen);
-        if (gen && gen.text) finalText = gen.text;
-      } catch (e) {
-        console.warn('Generation from chunks failed, falling back to local answer:', e?.message || e);
+    const response = await fetch("./.env");
+    if (!response.ok) return null;
+    const text = await response.text();
+    const env = {};
+    text.split(/\r?\n/).forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) return;
+      const idx = trimmed.indexOf("=");
+      if (idx === -1) return;
+      const key = trimmed.substring(0, idx).trim();
+      let val = trimmed.substring(idx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.substring(1, val.length - 1);
       }
-    }
-  } catch (e) {
-    console.warn('Could not check OpenAI availability:', e?.message || e);
+      env[key] = val;
+    });
+    return env;
+  } catch (err) {
+    console.warn("[Inventive RAG] Could not read local .env file:", err.message);
+    return null;
   }
-  // If OpenAI not available or generation yielded nothing, use local summarizer to improve phrasing
-  if (!finalText || !finalText.trim()) {
-    try {
-      if (window.FidEngine?.generateLocalFromChunks) {
-        const local = await window.FidEngine.generateLocalFromChunks(text, ragAnswer.retrieved || []);
-        console.debug('generateLocalFromChunks result:', local);
-        if (local && local.text) finalText = local.text;
-        if (local && local.citations && !ragAnswer.citations?.length) ragAnswer.citations = local.citations;
-      }
-    } catch (e) {
-      console.warn('Local generation failed:', e?.message || e);
-    }
-  }
-  // Ensure we always display something helpful: fallback to local ragAnswer.text or retrieved context
-  if (!finalText || !finalText.trim()) {
-    finalText = ragAnswer.text || (ragAnswer.context ? `Retrieved context:\n\n${ragAnswer.context}` : "No answer generated. Retrieved context not available.");
-  }
-  const aiMsg = { role: "ai", text: finalText, citations: ragAnswer.citations, context: ragAnswer.context };
-  setState({ projects: state.projects.map((p) => (p.id === projectId ? { ...p, conversation: [...p.conversation, aiMsg] } : p)), errors: {} });
-  await window.InventiveDB.addMessage(projectId, userId, "ai", finalText, ragAnswer.citations, ragAnswer.context);
 }
 
-function passagesContext(matches) {
-  if (!matches) return "";
-  return matches
-    .map((m) => {
-      const md = m.metadata || {};
-      return `[${md.document_id || m.id} chunk ${md.chunk_number || "?"}] ${md.content ? md.content.slice(0, 500) : ""}`;
-    })
-    .join("\n\n");
+async function initApp() {
+  render();
+  const env = await loadEnvFile();
+  if (env) {
+    let changed = false;
+    const nextSettings = { ...state.settings };
+    
+    if (env.GEMINI_API_KEY && state.settings.geminiApiKey !== env.GEMINI_API_KEY) {
+      nextSettings.geminiApiKey = env.GEMINI_API_KEY;
+      nextSettings.ragMode = "gemini";
+      changed = true;
+    }
+    if (env.PINECONE_API_KEY && state.settings.pineconeApiKey !== env.PINECONE_API_KEY) {
+      nextSettings.pineconeApiKey = env.PINECONE_API_KEY;
+      changed = true;
+    }
+    if (env.PINECONE_INDEX_HOST && state.settings.pineconeIndexHost !== env.PINECONE_INDEX_HOST) {
+      nextSettings.pineconeIndexHost = env.PINECONE_INDEX_HOST;
+      nextSettings.vectorDb = "pinecone";
+      changed = true;
+    }
+    
+    if (changed) {
+      console.info("[Inventive RAG] Auto-loaded credentials from local .env");
+      setState({ settings: nextSettings });
+    }
+  }
 }
 
-render();
+initApp();

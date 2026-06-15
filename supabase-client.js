@@ -15,10 +15,9 @@
 
 (function () {
   // ── Configuration ─────────────────────────────────────────────────────────
-  const SUPABASE_URL  = window.ENV?.SUPABASE_URL  || "https://YOUR_PROJECT_ID.supabase.co";
-  const SUPABASE_ANON = window.ENV?.SUPABASE_ANON || "YOUR_ANON_PUBLIC_KEY";
+  const SUPABASE_URL  = "https://YOUR_PROJECT_ID.supabase.co";  // ← replace
+  const SUPABASE_ANON = "YOUR_ANON_PUBLIC_KEY";                  // ← replace
 
-  // Consider the client configured when `config.js` provides real values
   const isConfigured =
     SUPABASE_URL !== "https://YOUR_PROJECT_ID.supabase.co" &&
     SUPABASE_ANON !== "YOUR_ANON_PUBLIC_KEY";
@@ -234,14 +233,20 @@
 
     if (!chunks.length) return { data: null, error: null };
 
-    const rows = chunks.map((chunk) => ({
-      document_id:  documentId,
-      project_id:   projectId,
-      source:       chunk.source,
-      chunk_number: chunk.chunkNumber,
-      content:      chunk.content,
-      tokens:       chunk.tokens
-    }));
+    const rows = chunks.map((chunk) => {
+      const row = {
+        document_id:  documentId,
+        project_id:   projectId,
+        source:       chunk.source,
+        chunk_number: chunk.chunkNumber,
+        content:      chunk.content,
+        tokens:       chunk.tokens
+      };
+      if (chunk.embedding) {
+        row.embedding = chunk.embedding;
+      }
+      return row;
+    });
 
     // Supabase has a default max payload of ~1 MB.  Batch in groups of 200.
     const BATCH = 200;
@@ -259,7 +264,7 @@
     if (!supabase) return { data: [], error: null };
     const { data, error } = await supabase
       .from("chunks")
-      .select("id, document_id, source, chunk_number, content, tokens")
+      .select("id, document_id, source, chunk_number, content, tokens, embedding")
       .eq("project_id", projectId)
       .order("chunk_number", { ascending: true });
     return { data: data || [], error: error?.message || null };
