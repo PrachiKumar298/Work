@@ -561,17 +561,32 @@
 
     const queryTerms = new Set(tokenize(query));
     const findings = [];
+    const seenSentences = new Set();
 
     retrieved.forEach((chunk) => {
       const sentences = chunk.content.match(/[^.!?]+[.!?]?/g) || [chunk.content];
-      const best = sentences
+      const scoredSentences = sentences
         .map((sentence) => ({
           sentence: sentence.trim(),
           score: tokenize(sentence).filter((token) => queryTerms.has(token)).length
         }))
-        .sort((a, b) => b.score - a.score)[0];
+        .filter(s => s.score > 0)
+        .sort((a, b) => b.score - a.score);
+
+      let best = null;
+      for (const s of scoredSentences) {
+        if (!seenSentences.has(s.sentence)) {
+          best = s;
+          break;
+        }
+      }
+
+      if (!best && scoredSentences.length > 0) {
+        best = scoredSentences[0];
+      }
       
       if (best?.sentence) {
+        seenSentences.add(best.sentence);
         let cleaned = best.sentence
           .replace(/\[[a-zA-Z0-9_-]+-id\]/gi, "")
           .replace(/\s+/g, " ")
