@@ -172,75 +172,23 @@
     const raw = new TextDecoder("latin1").decode(buffer);
     const textRuns = [];
 
-    // Parse balanced PDF string parentheses and TJ bracket arrays
-    let i = 0;
-    while (i < raw.length) {
-      if (raw[i] === '(') {
-        let depth = 1;
-        let str = "";
-        i++;
-        while (i < raw.length && depth > 0) {
-          const char = raw[i];
-          if (char === '\\') {
-            str += raw.slice(i, i + 2);
-            i += 2;
-          } else if (char === '(') {
-            depth++;
-            str += '(';
-            i++;
-          } else if (char === ')') {
-            depth--;
-            if (depth > 0) {
-              str += ')';
-            }
-            i++;
-          } else {
-            str += char;
-            i++;
-          }
-        }
-        textRuns.push(decodePdfString(str));
-      } else if (raw[i] === '[') {
-        i++;
-        let depth = 1;
-        while (i < raw.length && depth > 0) {
-          const char = raw[i];
-          if (char === ']') {
-            depth--;
-            i++;
-          } else if (char === '(') {
-            let str = "";
-            let sDepth = 1;
-            i++;
-            while (i < raw.length && sDepth > 0) {
-              const sChar = raw[i];
-              if (sChar === '\\') {
-                str += raw.slice(i, i + 2);
-                i += 2;
-              } else if (sChar === '(') {
-                sDepth++;
-                str += '(';
-                i++;
-              } else if (sChar === ')') {
-                sDepth--;
-                if (sDepth > 0) {
-                  str += ')';
-                }
-                i++;
-              } else {
-                str += sChar;
-                i++;
-              }
-            }
-            textRuns.push(decodePdfString(str));
-          } else {
-            i++;
-          }
-        }
-      } else {
-        i++;
+    // Fast regex matching for PDF strings (supporting up to 1 level of nested parentheses) and TJ arrays
+    const stringPattern = /\((?:\\.|[^()]+|\([^()]*\))*\)\s*Tj|\[(?:\\.|[^[\]]|\((?:\\.|[^()]+|\([^()]*\))*\))*\s*\]\s*TJ|\[(?:\\.|[^[\]])*\]\s*TJ/g;
+    const matches = raw.match(stringPattern) || [];
+
+    matches.forEach((match) => {
+      if (match.startsWith("(")) {
+        // Remove trailing Tj operator and surrounding parens
+        const content = match.replace(/\s*Tj$/, "");
+        textRuns.push(decodePdfString(content.slice(1, -1)));
+      } else if (match.startsWith("[")) {
+        // Extract all parenthesized strings inside the TJ array
+        const innerStrings = match.match(/\((?:\\.|[^()]+|\([^()]*\))*\)/g) || [];
+        innerStrings.forEach((str) => {
+          textRuns.push(decodePdfString(str.slice(1, -1)));
+        });
       }
-    }
+    });
 
     if (textRuns.join(" ").trim().length < 30) {
       const fallback = raw.match(/[A-Za-z][A-Za-z0-9,.;:'"!?()\- ]{20,}/g) || [];
