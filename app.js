@@ -60,7 +60,9 @@ const seedState = {
     geminiApiKey: "",
     pineconeApiKey: "",
     pineconeIndexHost: "",
-    geminiModel: "gemini-2.5-flash"
+    geminiModel: "gemini-2.5-flash",
+    supabaseUrl: "",
+    supabaseAnonKey: ""
   },
   settingsTab: "mode",
   settingsTestStatus: null,
@@ -111,6 +113,7 @@ const seedState = {
 };
 
 let state = loadState();
+window.state = state;
 
 function loadState() {
   try {
@@ -233,6 +236,7 @@ async function loadUserDataFromDB(userId) {
 
 function setState(next) {
   state = { ...state, ...next };
+  window.state = state;
   saveState();
   render();
 }
@@ -659,6 +663,18 @@ function renderSettingsModal() {
                 <span class="field-help">Must be created with <b>768 dimensions</b> (matching Google embeddings).</span>
               </div>
             </div>
+
+            <div class="settings-section">
+              <div class="field">
+                <label for="supabaseUrl">Supabase URL</label>
+                <input id="supabaseUrl" name="supabaseUrl" type="text" value="${escapeHtml(settings.supabaseUrl || "")}" placeholder="https://your-project.supabase.co" />
+              </div>
+              <div class="field" style="margin-top: 10px;">
+                <label for="supabaseAnonKey">Supabase Anon Key</label>
+                <input id="supabaseAnonKey" name="supabaseAnonKey" type="password" value="${escapeHtml(settings.supabaseAnonKey || "")}" placeholder="eyJhbG..." />
+                <span class="field-help">Find these in your Supabase Dashboard under Project Settings &rarr; API.</span>
+              </div>
+            </div>
           `}
           
           ${state.errors.settings ? `<div class="error-box">${escapeHtml(state.errors.settings)}</div>` : ""}
@@ -929,8 +945,14 @@ async function handleAction(event) {
   }
   if (action === "logout") {
     await window.InventiveDB.signOut();
-    setState({ user: null, route: { name: "auth" }, authMode: "login", errors: {}, projects: structuredClone(seedState.projects) });
-    localStorage.removeItem(storageKey);
+    const isOnline = window.InventiveDB.isConfigured;
+    setState({
+      user: null,
+      route: { name: "auth" },
+      authMode: "login",
+      errors: {},
+      projects: isOnline ? structuredClone(seedState.projects) : state.projects
+    });
   }
   if (action === "open-new-project") {
     setState({ modal: "new-project", errors: {} });
@@ -984,7 +1006,9 @@ async function handleSubmit(event) {
     if (error) return setState({ errors: { auth: error } });
     const user = { id: authData.user.id, email: authData.user.email, username: authData.user.user_metadata?.username || email };
     setState({ user, route: { name: "dashboard" }, errors: {} });
-    await loadUserDataFromDB(user.id);
+    if (window.InventiveDB.isConfigured) {
+      await loadUserDataFromDB(user.id);
+    }
     return;
   }
 
@@ -1067,6 +1091,8 @@ async function handleSubmit(event) {
     const geminiApiKey = data.get("geminiApiKey")?.trim() || "";
     const pineconeApiKey = data.get("pineconeApiKey")?.trim() || "";
     const pineconeIndexHost = data.get("pineconeIndexHost")?.trim() || "";
+    const supabaseUrl = data.get("supabaseUrl")?.trim() || "";
+    const supabaseAnonKey = data.get("supabaseAnonKey")?.trim() || "";
 
     if (ragMode === "gemini" && !geminiApiKey) {
       return setState({ errors: { settings: "Please provide a Gemini API Key to use Gemini mode." } });
@@ -1083,8 +1109,12 @@ async function handleSubmit(event) {
       geminiModel,
       geminiApiKey,
       pineconeApiKey,
-      pineconeIndexHost
+      pineconeIndexHost,
+      supabaseUrl,
+      supabaseAnonKey
     };
+
+    window.InventiveDB.init(supabaseUrl, supabaseAnonKey);
 
     setState({
       settings: updatedSettings,
@@ -1389,6 +1419,7 @@ async function loadEnvFile() {
 async function initApp() {
   render();
   const env = await loadEnvFile();
+  let envSettings = {};
   if (env) {
     let changed = false;
     const nextSettings = { ...state.settings };
@@ -1407,10 +1438,32 @@ async function initApp() {
       nextSettings.vectorDb = "pinecone";
       changed = true;
     }
+    if (env.SUPABASE_URL && state.settings.supabaseUrl !== env.SUPABASE_URL) {
+      nextSettings.supabaseUrl = env.SUPABASE_URL;
+      changed = true;
+    }
+    const supAnon = env.SUPABASE_ANON_KEY || env.SUPABASE_ANON || env.SUPABASE_ANON_PUBLIC_KEY;
+    if (supAnon && state.settings.supabaseAnonKey !== supAnon) {
+      nextSettings.supabaseAnonKey = supAnon;
+      changed = true;
+    }
     
     if (changed) {
       console.info("[Inventive RAG] Auto-loaded credentials from local .env");
       setState({ settings: nextSettings });
+    }
+    envSettings = env;
+  }
+
+  // Initialize Supabase client
+  const finalSupabaseUrl = state.settings.supabaseUrl || envSettings.SUPABASE_URL || window.ENV?.SUPABASE_URL;
+  const finalSupabaseAnon = state.settings.supabaseAnonKey || envSettings.SUPABASE_ANON_KEY || envSettings.SUPABASE_ANON || envSettings.SUPABASE_ANON_PUBLIC_KEY || window.ENV?.SUPABASE_ANON;
+  window.InventiveDB.init(finalSupabaseUrl, finalSupabaseAnon);
+
+  // Sync user data if online and logged in
+  if (state.user && window.InventiveDB.isConfigured) {
+    if (!state.user.id.startsWith("local-")) {
+      await loadUserDataFromDB(state.user.id);
     }
   }
 }

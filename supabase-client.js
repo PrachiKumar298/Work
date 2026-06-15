@@ -15,30 +15,52 @@
 
 (function () {
   // ── Configuration ─────────────────────────────────────────────────────────
-  const SUPABASE_URL  = "https://YOUR_PROJECT_ID.supabase.co";  // ← replace
-  const SUPABASE_ANON = "YOUR_ANON_PUBLIC_KEY";                  // ← replace
-
-  const isConfigured =
-    SUPABASE_URL !== "https://YOUR_PROJECT_ID.supabase.co" &&
-    SUPABASE_ANON !== "YOUR_ANON_PUBLIC_KEY";
+  const HARDCODED_URL  = "https://YOUR_PROJECT_ID.supabase.co";
+  const HARDCODED_ANON = "YOUR_ANON_PUBLIC_KEY";
 
   let supabase = null;
+  let configuredUrl = null;
+  let configuredKey = null;
 
-  function init() {
+  function init(url, key) {
+    // Fallback order:
+    // 1. Explicit arguments
+    // 2. window.ENV configuration (e.g. from config.js)
+    // 3. Hardcoded constants in this file
+    const targetUrl = url || window.ENV?.SUPABASE_URL || HARDCODED_URL;
+    const targetKey = key || window.ENV?.SUPABASE_ANON || HARDCODED_ANON;
+
+    const isConfigured =
+      targetUrl &&
+      targetUrl !== HARDCODED_URL &&
+      targetKey &&
+      targetKey !== HARDCODED_ANON;
+
     if (!isConfigured) {
+      supabase = null;
+      configuredUrl = null;
+      configuredKey = null;
       console.warn(
         "[InventiveDB] Supabase credentials not set. " +
-        "Running in localStorage-only mode. " +
-        "Edit supabase-client.js to connect a real database."
+        "Running in localStorage-only mode."
       );
       return;
     }
+
     if (typeof window.supabase === "undefined") {
       console.error("[InventiveDB] Supabase JS SDK not found. Add the CDN script to index.html.");
       return;
     }
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-    console.info("[InventiveDB] Connected to Supabase.");
+
+    try {
+      supabase = window.supabase.createClient(targetUrl, targetKey);
+      configuredUrl = targetUrl;
+      configuredKey = targetKey;
+      console.info("[InventiveDB] Connected to Supabase at", targetUrl);
+    } catch (err) {
+      console.error("[InventiveDB] Failed to initialize Supabase client:", err);
+      supabase = null;
+    }
   }
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -390,7 +412,7 @@
   window.InventiveDB = {
     // Setup
     init,
-    get isConfigured() { return isConfigured; },
+    get isConfigured() { return !!supabase; },
     // Auth
     signUp,
     signIn,
