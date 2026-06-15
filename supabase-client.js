@@ -133,13 +133,14 @@
   }
 
   /**
-   * Rename a project.
+   * Update project fields (e.g. name, is_important).
    */
-  async function updateProject(projectId, name) {
-    if (!supabase) return { data: null, error: null };
+  async function updateProject(projectId, updates) {
+    const payload = typeof updates === "string" ? { name: updates } : updates;
+    if (!supabase) return { data: { id: projectId, ...payload }, error: null };
     const { data, error } = await supabase
       .from("projects")
-      .update({ name })
+      .update(payload)
       .eq("id", projectId)
       .select()
       .single();
@@ -332,7 +333,13 @@
       // Create project
       const { data: projectRow, error: pErr } = await supabase
         .from("projects")
-        .insert({ id: project.id, user_id: userId, name: project.name, created_at: project.createdAt })
+        .insert({
+          id: project.id,
+          user_id: userId,
+          name: project.name,
+          is_important: !!project.isImportant,
+          created_at: project.createdAt
+        })
         .select()
         .single();
 

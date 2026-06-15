@@ -18,11 +18,12 @@ create table if not exists public.profiles (
 
 -- ── Projects ─────────────────────────────────────────────────
 create table if not exists public.projects (
-  id          uuid primary key default uuid_generate_v4(),
-  user_id     uuid not null references public.profiles(id) on delete cascade,
-  name        text not null,
-  created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
+  id           uuid primary key default uuid_generate_v4(),
+  user_id      uuid not null references public.profiles(id) on delete cascade,
+  name         text not null,
+  is_important boolean not null default false,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
 );
 
 -- ── Documents ────────────────────────────────────────────────
@@ -61,6 +62,7 @@ create index if not exists chunks_document_id_idx on public.chunks (document_id)
 
 -- Migration statement for existing schemas:
 -- alter table public.chunks add column if not exists embedding real[];
+-- alter table public.projects add column if not exists is_important boolean not null default false;
 
 -- ── Conversations ────────────────────────────────────────────
 -- Stores every user + AI message turn for a project.

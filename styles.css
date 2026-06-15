@@ -447,7 +447,7 @@ button {
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 210px auto;
+  grid-template-columns: 1fr 210px;
   gap: 12px;
   align-items: end;
   margin-bottom: 20px;
@@ -457,20 +457,29 @@ button {
   background: var(--surface-soft);
 }
 
-.search-field {
+.search-input-wrapper {
   position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
 }
 
-.search-field .icon {
+.search-input-wrapper .icon {
   position: absolute;
   left: 12px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--muted);
+  pointer-events: none;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.search-field input {
-  padding-left: 40px;
+.search-input-wrapper input {
+  padding-left: 38px !important;
 }
 
 .project-grid {
@@ -1301,5 +1310,121 @@ tr:last-child td {
 
 .context-box summary:hover {
   color: var(--red-dark);
+}
+
+/* ── Project Card Refinements & Action Overlay ────────────────────────────── */
+
+.project-card {
+  position: relative;
+  min-height: 168px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 10px 28px rgba(17, 17, 17, 0.04);
+  text-align: left;
+  transition:
+    border-color var(--transition),
+    box-shadow var(--transition),
+    transform var(--transition);
+}
+
+.project-card-body {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 18px;
+  margin: 0;
+  border-radius: var(--radius);
+  outline: none;
+  transition: background var(--transition);
+}
+
+.project-card-body:hover {
+  background: rgba(0, 0, 0, 0.01);
+}
+
+.project-card:hover {
+  border-color: var(--red);
+  box-shadow: var(--shadow);
+  transform: translateY(-2px);
+}
+
+.project-card h2 {
+  margin: 0 40px 0 0; /* Add margin right to prevent text overlapping actions */
+  color: var(--text);
+  font-size: 1.12rem;
+  letter-spacing: 0;
+}
+
+.project-card p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.project-card-actions {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+  opacity: 0.6;
+  transition: opacity var(--transition);
+  z-index: 5;
+}
+
+.project-card:hover .project-card-actions {
+  opacity: 1;
+}
+
+.project-card-actions .action-btn {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--muted);
+  transition: all var(--transition);
+  padding: 0;
+}
+
+.project-card-actions .action-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.project-card-actions .flag-btn.flagged {
+  color: #ff3b30;
+  border-color: rgba(255, 59, 48, 0.25);
+  background: rgba(255, 59, 48, 0.05);
+}
+
+.project-card-actions .flag-btn.flagged svg {
+  fill: #ff3b30;
+}
+
+.project-card-actions .flag-btn.flagged:hover {
+  color: #e02d22;
+  border-color: rgba(224, 45, 34, 0.4);
+}
+
+.project-card-actions .delete-btn:hover {
+  color: #ff3b30;
+  border-color: rgba(255, 59, 48, 0.3);
+  background: rgba(255, 59, 48, 0.05);
 }
 

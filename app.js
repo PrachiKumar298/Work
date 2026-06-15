@@ -9,6 +9,8 @@ const icons = {
   close: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
   arrowLeft: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>',
   settings: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+  edit: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4Z"/></svg>',
+  flag: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>',
   externalLink: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="m15 3 6 6m0-6v6m0-6H15"/></svg>'
 };
 
@@ -127,6 +129,7 @@ function migrateState(nextState) {
     ...nextState,
     projects: nextState.projects.map((project) => ({
       ...project,
+      isImportant: !!project.isImportant || !!project.is_important || false,
       documents: (project.documents || []).map((doc) => {
         const sampleText = sampleDocumentText[doc.name];
         if (sampleText && (!doc.chunks || !doc.chunks.length)) {
@@ -218,6 +221,7 @@ async function loadUserDataFromDB(userId) {
         id: projectId,
         name: row.name,
         createdAt: row.created_at,
+        isImportant: !!row.is_important,
         documents,
         conversation
       };
@@ -268,6 +272,10 @@ function isPasswordValid(password) {
 }
 
 function render() {
+  const activeElementId = document.activeElement ? document.activeElement.id : null;
+  const selectionStart = document.activeElement ? document.activeElement.selectionStart : null;
+  const selectionEnd = document.activeElement ? document.activeElement.selectionEnd : null;
+
   const app = document.querySelector("#app");
   const routeName = state.user ? state.route.name : "auth";
   if (routeName === "auth") {
@@ -278,18 +286,32 @@ function render() {
         ${renderHeader()}
         ${routeName === "project" ? renderProjectPage() : renderDashboard()}
         ${state.modal === "new-project" ? renderNewProjectModal() : ""}
+        ${state.modal === "rename-project" ? renderRenameProjectModal() : ""}
         ${state.modal === "settings" ? renderSettingsModal() : ""}
       </div>
     `;
   }
   bindEvents();
+
+  if (activeElementId) {
+    const el = document.getElementById(activeElementId);
+    if (el) {
+      el.focus();
+      if (typeof el.setSelectionRange === "function" && selectionStart !== null && selectionEnd !== null) {
+        try {
+          el.setSelectionRange(selectionStart, selectionEnd);
+        } catch (e) {
+          // ignore
+        }
+      }
+    }
+  }
 }
 
 function renderHeader() {
   return `
     <header class="header">
       <div class="brand" aria-label="Inventive brand"><span class="brand-mark"></span><span>Inventive</span></div>
-      <button class="nav-button" data-action="home" title="Home">${icons.home} Home</button>
       <div class="header-actions">
         <button class="secondary-button" data-action="open-settings" style="margin-right: 8px;">${icons.settings} Settings</button>
         <button class="danger-button" data-action="logout" title="Log out">${icons.logOut} Logout</button>
@@ -375,10 +397,12 @@ function renderDashboard() {
         <button class="primary-button" data-action="open-new-project">${icons.plus} New project</button>
       </div>
       <section class="toolbar" aria-label="Project controls">
-        <div class="field search-field">
+        <div class="field">
           <label for="projectSearch">Search projects</label>
-          ${icons.search}
-          <input id="projectSearch" value="${escapeHtml(state.search)}" placeholder="Find by project name" />
+          <div class="search-input-wrapper">
+            ${icons.search}
+            <input id="projectSearch" value="${escapeHtml(state.search)}" placeholder="Find by project name" />
+          </div>
         </div>
         <div class="field">
           <label for="projectSort">Sort by</label>
@@ -386,9 +410,9 @@ function renderDashboard() {
             <option value="created-desc" ${state.sort === "created-desc" ? "selected" : ""}>Newest first</option>
             <option value="name-asc" ${state.sort === "name-asc" ? "selected" : ""}>Name A to Z</option>
             <option value="docs-desc" ${state.sort === "docs-desc" ? "selected" : ""}>Most documents</option>
+            <option value="flagged-only" ${state.sort === "flagged-only" ? "selected" : ""}>Important only</option>
           </select>
         </div>
-        <button class="secondary-button" data-action="open-new-project">${icons.plus} Create</button>
       </section>
       ${projects.length ? `
         <section class="project-grid" aria-label="Project list">
@@ -408,27 +432,42 @@ function renderDashboard() {
 
 function filteredProjects() {
   const needle = state.search.trim().toLowerCase();
-  return state.projects
-    .filter((project) => project.name.toLowerCase().includes(needle))
-    .sort((a, b) => {
-      if (state.sort === "name-asc") return a.name.localeCompare(b.name);
-      if (state.sort === "docs-desc") return b.documents.length - a.documents.length;
-      return new Date(b.createdAt) - new Date(a.createdAt);
-    });
+  let list = state.projects.filter((project) => project.name.toLowerCase().includes(needle));
+  if (state.sort === "flagged-only") {
+    list = list.filter((project) => project.isImportant || project.is_important);
+  }
+  return list.sort((a, b) => {
+    if (state.sort === "name-asc") return a.name.localeCompare(b.name);
+    if (state.sort === "docs-desc") return b.documents.length - a.documents.length;
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
 }
 
 function renderProjectCard(project) {
   return `
-    <button class="project-card" data-action="open-project" data-project-id="${project.id}">
-      <span>
-        <h2>${escapeHtml(project.name)}</h2>
-        <p>Created ${formatDate(project.createdAt)}</p>
-      </span>
-      <span class="card-meta">
-        <span>${project.documents.filter((doc) => doc.status === "processed").length} processed</span>
-        <span class="count-pill">${project.documents.length} docs</span>
-      </span>
-    </button>
+    <div class="project-card" data-project-id="${project.id}">
+      <button class="project-card-body" data-action="open-project" data-project-id="${project.id}">
+        <span>
+          <h2>${escapeHtml(project.name)}</h2>
+          <p>Created ${formatDate(project.createdAt)}</p>
+        </span>
+        <span class="card-meta">
+          <span>${project.documents.filter((doc) => doc.status === "processed").length} processed</span>
+          <span class="count-pill">${project.documents.length} docs</span>
+        </span>
+      </button>
+      <div class="project-card-actions">
+        <button class="action-btn flag-btn ${project.isImportant ? "flagged" : ""}" data-action="toggle-flag" data-project-id="${project.id}" title="Mark as important">
+          ${icons.flag}
+        </button>
+        <button class="action-btn rename-btn" data-action="rename-project" data-project-id="${project.id}" title="Rename project">
+          ${icons.edit}
+        </button>
+        <button class="action-btn delete-btn" data-action="delete-project" data-project-id="${project.id}" title="Delete project">
+          ${icons.trash}
+        </button>
+      </div>
+    </div>
   `;
 }
 
@@ -452,6 +491,35 @@ function renderNewProjectModal() {
           <div class="modal-actions">
             <button class="secondary-button" data-action="close-modal" type="button">Cancel</button>
             <button class="primary-button" type="submit">${icons.plus} Create project</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  `;
+}
+
+function renderRenameProjectModal() {
+  const project = getProject(state.renameProjectId);
+  if (!project) return "";
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="renameProjectTitle">
+        <div class="modal-head">
+          <div>
+            <h2 id="renameProjectTitle">Rename project</h2>
+            <p>Choose a new name for your document collection.</p>
+          </div>
+          <button class="icon-button" data-action="close-modal" title="Close">${icons.close}</button>
+        </div>
+        <form class="form-grid" data-form="rename-project">
+          <div class="field">
+            <label for="renameProjectName">Project name</label>
+            <input id="renameProjectName" name="name" value="${escapeHtml(project.name)}" required placeholder="e.g. Sales Playbook" />
+          </div>
+          ${state.errors.rename ? `<div class="error-box">${escapeHtml(state.errors.rename)}</div>` : ""}
+          <div class="modal-actions">
+            <button class="secondary-button" data-action="close-modal" type="button">Cancel</button>
+            <button class="primary-button" type="submit">${icons.edit} Save</button>
           </div>
         </form>
       </section>
@@ -675,8 +743,14 @@ function renderProjectPage() {
             </div>
           </div>
           <section class="conversation" aria-label="Conversation">
-            ${project.conversation.length ? project.conversation.map((message) => renderMessage(message, project)).join("") : `
-              ${state.isQuerying ? "" : `
+            ${project.conversation.length ? renderConversationTurns(project) : `
+              ${state.isQuerying ? `
+                <article class="message ai loading-skeleton" aria-live="polite">
+                  <div class="message-role"><span>AI is thinking...</span></div>
+                  <div class="skeleton-line"></div>
+                  <div class="skeleton-line short"></div>
+                </article>
+              ` : `
                 <div class="empty-state">
                   <div>
                     <h2>No questions yet</h2>
@@ -685,13 +759,6 @@ function renderProjectPage() {
                 </div>
               `}
             `}
-            ${state.isQuerying ? `
-              <article class="message ai loading-skeleton" aria-live="polite">
-                <div class="message-role"><span>AI is thinking...</span></div>
-                <div class="skeleton-line"></div>
-                <div class="skeleton-line short"></div>
-              </article>
-            ` : ""}
           </section>
         </div>
       </section>
@@ -741,6 +808,48 @@ function renderMessage(message, project) {
       </details>
     </article>
   `;
+}
+
+function renderConversationTurns(project) {
+  const turns = [];
+  let currentTurn = null;
+  project.conversation.forEach((msg) => {
+    if (msg.role === "user") {
+      if (currentTurn) {
+        turns.push(currentTurn);
+      }
+      currentTurn = { user: msg, ai: null };
+    } else if (msg.role === "ai") {
+      if (currentTurn) {
+        currentTurn.ai = msg;
+      } else {
+        turns.push({ user: null, ai: msg });
+      }
+    }
+  });
+  if (currentTurn) {
+    turns.push(currentTurn);
+  }
+
+  const reversed = [...turns].reverse();
+  return reversed.map((turn, index) => {
+    let html = "";
+    if (turn.user) {
+      html += renderMessage(turn.user, project);
+    }
+    if (turn.ai) {
+      html += renderMessage(turn.ai, project);
+    } else if (index === 0 && state.isQuerying) {
+      html += `
+        <article class="message ai loading-skeleton" aria-live="polite">
+          <div class="message-role"><span>AI is thinking...</span></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line short"></div>
+        </article>
+      `;
+    }
+    return html;
+  }).join("");
 }
 
 function fallbackCitations(project) {
@@ -836,7 +945,19 @@ async function handleAction(event) {
     runConnectionTest();
   }
   if (action === "close-modal") {
-    setState({ modal: null, errors: {}, settingsTestStatus: null });
+    setState({ modal: null, errors: {}, settingsTestStatus: null, renameProjectId: null });
+  }
+  if (action === "toggle-flag") {
+    event.stopPropagation();
+    toggleFlag(target.dataset.projectId);
+  }
+  if (action === "rename-project") {
+    event.stopPropagation();
+    setState({ modal: "rename-project", renameProjectId: target.dataset.projectId, errors: {} });
+  }
+  if (action === "delete-project") {
+    event.stopPropagation();
+    deleteProject(target.dataset.projectId);
   }
   if (action === "open-project") {
     navigate({ name: "project", projectId: target.dataset.projectId });
@@ -908,6 +1029,29 @@ async function handleSubmit(event) {
       projects: [project, ...state.projects],
       route: { name: "project", projectId: project.id },
       modal: null,
+      errors: {}
+    });
+  }
+
+  if (formType === "rename-project") {
+    const newName = data.get("name")?.trim();
+    if (!newName) return setState({ errors: { rename: "Enter a project name." } });
+    
+    const projectId = state.renameProjectId;
+    if (state.user) {
+      const { error } = await window.InventiveDB.updateProject(projectId, { name: newName });
+      if (error) return setState({ errors: { rename: error } });
+    }
+    
+    const nextProjects = state.projects.map((p) => {
+      if (p.id !== projectId) return p;
+      return { ...p, name: newName };
+    });
+    
+    return setState({
+      projects: nextProjects,
+      modal: null,
+      renameProjectId: null,
       errors: {}
     });
   }
@@ -1097,6 +1241,48 @@ async function deleteDocument(projectId, docId) {
     return { ...project, documents: project.documents.filter((doc) => doc.id !== docId) };
   });
   setState({ projects: nextProjects, errors: {} });
+}
+
+async function toggleFlag(projectId) {
+  const project = getProject(projectId);
+  if (!project) return;
+  const nextFlag = !project.isImportant;
+
+  if (state.user) {
+    const { error } = await window.InventiveDB.updateProject(projectId, { is_important: nextFlag });
+    if (error) {
+      console.error("[DB] updateProject (flag):", error);
+      return;
+    }
+  }
+
+  const nextProjects = state.projects.map((p) => {
+    if (p.id !== projectId) return p;
+    return { ...p, isImportant: nextFlag };
+  });
+  setState({ projects: nextProjects });
+}
+
+async function deleteProject(projectId) {
+  if (!confirm("Are you sure you want to delete this project? This will permanently delete all associated documents and conversation history.")) {
+    return;
+  }
+
+  if (state.user) {
+    const { error } = await window.InventiveDB.deleteProject(projectId);
+    if (error) {
+      console.error("[DB] deleteProject:", error);
+      alert("Failed to delete project: " + error);
+      return;
+    }
+  }
+
+  const nextProjects = state.projects.filter((p) => p.id !== projectId);
+  if (state.route.name === "project" && state.route.projectId === projectId) {
+    setState({ projects: nextProjects, route: { name: "dashboard" } });
+  } else {
+    setState({ projects: nextProjects });
+  }
 }
 
 async function submitQuery(projectId, text) {
