@@ -82,7 +82,7 @@
       return extractDocxText(await file.arrayBuffer());
     }
     if (extension === "pdf") {
-      return extractPdfText(await file.arrayBuffer());
+      return await extractPdfText(await file.arrayBuffer());
     }
     throw new Error("Unsupported file type.");
   }
@@ -168,17 +168,215 @@
       .replace(/&apos;/g, "'");
   }
 
-  function extractPdfText(buffer) {
+  async function decompressBytes(bytes) {
+    if (typeof require !== "undefined") {
+      try {
+        const zlib = require("zlib");
+        return zlib.inflateSync(bytes);
+      } catch (err) {
+        try {
+          const zlib = require("zlib");
+          return zlib.inflateRawSync(bytes);
+        } catch (err2) {
+          throw err;
+        }
+      }
+    }
+
+    // Browser environment - native DecompressionStream
+    const ds = new DecompressionStream("deflate");
+    const writer = ds.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+
+    const reader = ds.readable.getReader();
+    const chunks = [];
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+    } catch (err) {
+      // Fallback: try raw deflate
+      const dsRaw = new DecompressionStream("deflate-raw");
+      const writerRaw = dsRaw.writable.getWriter();
+      writerRaw.write(bytes);
+      writerRaw.close();
+      const readerRaw = dsRaw.readable.getReader();
+      const chunksRaw = [];
+      while (true) {
+        const { done, value } = await readerRaw.read();
+        if (done) break;
+        chunksRaw.push(value);
+      }
+      const totalLength = chunksRaw.reduce((acc, c) => acc + c.length, 0);
+      const result = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunksRaw) {
+        result.set(chunk, offset);
+        offset += chunk.length;
+      }
+      return result;
+    }
+
+    const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return result;
+  }
+
+  function scanParentheses(str) {
+    const runs = [];
+    let i = 0;
+    while (i < str.length) {
+      if (str[i] === '(') {
+        let depth = 1;
+        let start = i + 1;
+        i++;
+        while (i < str.length && depth > 0) {
+          if (str[i] === '\\') {
+            i += 2;
+          } else if (str[i] === '(') {
+            depth++;
+            i++;
+          } else if (str[i] === ')') {
+            depth--;
+            i++;
+          } else {
+            i++;
+          }
+        }
+        runs.push(str.slice(start, i - 1));
+      } else {
+        i++;
+      }
+    }
+    return runs;
+  }
+
+  async function extractPdfText(buffer) {
     const raw = new TextDecoder("latin1").decode(buffer);
     const textRuns = [];
 
-    // Match all parenthesized strings, supporting up to 1 level of nested parentheses
-    const stringPattern = /\((?:\\.|[^()]+|\([^()]*\))*\)/g;
-    const matches = raw.match(stringPattern) || [];
+    let lastPos = 0;
+    while (true) {
+      const streamIdx = raw.indexOf("stream", lastPos);
+      if (streamIdx === -1) {
+        break;
+      }
 
-    matches.forEach((match) => {
-      textRuns.push(decodePdfString(match.slice(1, -1)));
-    });
+      // Verify it's indeed the stream keyword
+      const prevChar = raw.charAt(streamIdx - 1);
+      if (streamIdx > 0 && prevChar !== '>' && prevChar !== '\r' && prevChar !== '\n' && prevChar !== ' ' && prevChar !== '\t') {
+        lastPos = streamIdx + 6;
+        continue;
+      }
+
+      let dataStart = streamIdx + 6;
+      if (raw.charCodeAt(dataStart) === 13) dataStart++;
+      if (raw.charCodeAt(dataStart) === 10) dataStart++;
+
+      const endstreamIdx = raw.indexOf("endstream", dataStart);
+      if (endstreamIdx === -1) {
+        break;
+      }
+
+      let isFlate = false;
+      let length = -1;
+      let isImage = false;
+      const dictStart = raw.lastIndexOf("<<", streamIdx);
+      if (dictStart !== -1 && streamIdx - dictStart < 2000) {
+        const header = raw.slice(dictStart, streamIdx);
+        if (/\/FlateDecode/i.test(header)) {
+          isFlate = true;
+        }
+        if (/\/Subtype\s*\/Image/i.test(header) || /\/Type\s*\/XObject/i.test(header)) {
+          if (!/\/Subtype\s*\/Form/i.test(header)) {
+            isImage = true;
+          }
+        }
+        const lenMatch = header.match(/\/Length\s+(\d+)/i);
+        if (lenMatch) {
+          length = parseInt(lenMatch[1], 10);
+        }
+      }
+
+      let dataEnd = endstreamIdx;
+      if (length > 0 && dataStart + length <= endstreamIdx) {
+        dataEnd = dataStart + length;
+      } else {
+        while (dataEnd > dataStart) {
+          const c = raw.charCodeAt(dataEnd - 1);
+          if (c === 10 || c === 13 || c === 32 || c === 9) {
+            dataEnd--;
+          } else {
+            break;
+          }
+        }
+      }
+
+      if (isImage) {
+        lastPos = endstreamIdx + 9;
+        continue;
+      }
+
+      const streamContentLatin1 = raw.slice(dataStart, dataEnd);
+      const streamBytes = new Uint8Array(streamContentLatin1.length);
+      for (let i = 0; i < streamContentLatin1.length; i++) {
+        streamBytes[i] = streamContentLatin1.charCodeAt(i);
+      }
+
+      let decompressedStr = "";
+      if (isFlate) {
+        try {
+          const decompressedBytes = await decompressBytes(streamBytes);
+          decompressedStr = new TextDecoder("latin1").decode(decompressedBytes);
+        } catch (err) {
+          // ignore decompression failure
+        }
+      } else {
+        decompressedStr = streamContentLatin1;
+      }
+
+      if (decompressedStr) {
+        let isContentStream = true;
+        if (/\/Length\d/i.test(header) || /\/Type\s*\/Font/i.test(header) || /\/ToUnicode/i.test(header)) {
+          isContentStream = false;
+        }
+        if (/\/Type\s*\/ObjStm/i.test(header) || /\/Type\s*\/XRef/i.test(header)) {
+          isContentStream = false;
+        }
+        if (decompressedStr.startsWith("%!PS") || decompressedStr.startsWith("%%") || decompressedStr.startsWith("%!")) {
+          isContentStream = false;
+        }
+        // Content streams must contain the text object marker BT
+        if (isContentStream && !/\bBT\b/.test(decompressedStr)) {
+          isContentStream = false;
+        }
+
+        if (isContentStream) {
+          const parenthesized = scanParentheses(decompressedStr);
+          parenthesized.forEach((match) => {
+            textRuns.push(decodePdfString(match));
+          });
+        }
+      }
+
+      lastPos = endstreamIdx + 9;
+    }
+
+    // Fallback if no text runs extracted
+    if (textRuns.join(" ").trim().length < 30) {
+      const parenthesized = scanParentheses(raw);
+      parenthesized.forEach((match) => {
+        textRuns.push(decodePdfString(match));
+      });
+    }
 
     if (textRuns.join(" ").trim().length < 30) {
       const fallback = raw.match(/[A-Za-z][A-Za-z0-9,.;:'"!?()\- ]{20,}/g) || [];
@@ -190,7 +388,7 @@
       throw new Error("No readable text was found in this PDF. Try a text-based PDF or TXT file.");
     }
 
-    // Clean up PDF-specific object reference garbage (e.g. "FontDescriptor 28 0 R", "5 0 R", "R 5 0")
+    // Clean up PDF-specific object reference garbage
     text = text
       .replace(/FontDescriptor\s+\d+\s+\d+\s+R/gi, "")
       .replace(/\b\d+\s+\d+\s+R\b/gi, "")
@@ -619,6 +817,29 @@ Guidelines:
     return results;
   }
 
+  function reprocessProjects(projects) {
+    if (!Array.isArray(projects)) return projects;
+    return projects.map((project) => {
+      const docs = (project.documents || []).map((doc) => {
+        try {
+          const text = String(doc.extractedText || "");
+          const chunks = chunkText(text, doc.name || doc.id || "doc");
+          return {
+            ...doc,
+            status: chunks.length ? "processed" : "pending",
+            extractedText: text,
+            chunks,
+            chunkCount: chunks.length,
+            extractionError: chunks.length ? "" : (doc.extractionError || "No readable text")
+          };
+        } catch (e) {
+          return { ...doc, status: "error", extractionError: String(e) };
+        }
+      });
+      return { ...project, documents: docs };
+    });
+  }
+
   window.RagEngine = {
     answer,
     chunkText,
@@ -632,6 +853,7 @@ Guidelines:
     upsertToPinecone,
     deleteFromPinecone,
     deleteProjectFromPinecone,
-    testCredentials
+    testCredentials,
+    reprocessProjects
   };
 })();
