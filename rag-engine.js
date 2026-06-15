@@ -25,7 +25,20 @@
     const cleaned = normalizeText(text);
     if (!cleaned) return [];
 
-    const sentences = cleaned.match(/[^.!?]+[.!?]?(?:\s+|$)/g) || [cleaned];
+    const sentences = [];
+    const rawSentences = cleaned.match(/[^.!?]+[.!?]?(?:\s+|$)/g) || [cleaned];
+    for (const s of rawSentences) {
+      const trimmed = s.trim();
+      if (!trimmed) continue;
+      const words = trimmed.split(/\s+/);
+      if (words.length > 150) {
+        for (let i = 0; i < words.length; i += 100) {
+          sentences.push(words.slice(i, i + 100).join(" "));
+        }
+      } else {
+        sentences.push(trimmed);
+      }
+    }
     
     const chunks = [];
     const targetWords = 110; 
@@ -51,7 +64,12 @@
         });
 
         const overlapCount = Math.min(overlapSentences, currentSentences.length);
-        currentSentences = currentSentences.slice(currentSentences.length - overlapCount);
+        let overlap = currentSentences.slice(currentSentences.length - overlapCount);
+        const overlapWords = overlap.reduce((acc, s) => acc + s.split(/\s+/).length, 0);
+        if (overlapWords > 40) {
+          overlap = [];
+        }
+        currentSentences = overlap;
         currentWordCount = currentSentences.reduce((acc, s) => acc + s.split(/\s+/).length, 0);
       }
 
@@ -258,6 +276,52 @@
       return -1;
     }
 
+    function decodePdfHex(hexStr) {
+      const bytes = [];
+      for (let i = 0; i < hexStr.length; i += 2) {
+        bytes.push(parseInt(hexStr.substring(i, i + 2), 16));
+      }
+      if (bytes.length >= 2 && bytes.length % 2 === 0) {
+        let isUtf16 = true;
+        for (let i = 0; i < bytes.length; i += 2) {
+          if (bytes[i] !== 0) {
+            isUtf16 = false;
+            break;
+          }
+        }
+        if (isUtf16) {
+          const chars = [];
+          for (let i = 1; i < bytes.length; i += 2) {
+            chars.push(String.fromCharCode(bytes[i]));
+          }
+          return chars.join("");
+        }
+      }
+      const chars = [];
+      for (let i = 0; i < bytes.length; i++) {
+        const c = bytes[i];
+        if (c >= 32 && c <= 126) {
+          chars.push(String.fromCharCode(c));
+        } else if (c === 9 || c === 10 || c === 13) {
+          chars.push(String.fromCharCode(c));
+        }
+      }
+      return chars.join("");
+    }
+
+    function scanHexStrings(str) {
+      const runs = [];
+      const matches = str.match(/<[0-9a-fA-F]+>/g) || [];
+      matches.forEach(m => {
+        const hex = m.slice(1, -1);
+        const decoded = decodePdfHex(hex);
+        if (decoded.trim().length >= 2) {
+          runs.push(decoded);
+        }
+      });
+      return runs;
+    }
+
     let lastPos = 0;
     while (true) {
       const streamIdx = raw.indexOf("stream", lastPos);
@@ -377,15 +441,15 @@
         if (decompressedStr.startsWith("%!PS") || decompressedStr.startsWith("%%") || decompressedStr.startsWith("%!")) {
           isContentStream = false;
         }
-        // Content streams must contain the text object marker BT
-        if (isContentStream && !/\bBT\b/.test(decompressedStr)) {
-          isContentStream = false;
-        }
 
         if (isContentStream) {
           const parenthesized = scanParentheses(decompressedStr);
           parenthesized.forEach((match) => {
             textRuns.push(decodePdfString(match));
+          });
+          const hexStrings = scanHexStrings(decompressedStr);
+          hexStrings.forEach((match) => {
+            textRuns.push(match);
           });
         }
       }
