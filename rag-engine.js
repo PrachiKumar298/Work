@@ -232,6 +232,32 @@
     const raw = new TextDecoder("latin1").decode(buffer);
     const textRuns = [];
 
+    function findDictStart(raw, streamIdx) {
+      let i = streamIdx - 1;
+      while (i >= 0 && /\s/.test(raw[i])) {
+        i--;
+      }
+      if (i < 1 || raw[i] !== '>' || raw[i-1] !== '>') {
+        return -1;
+      }
+      let depth = 0;
+      while (i >= 1) {
+        if (raw[i] === '>' && raw[i-1] === '>') {
+          depth++;
+          i -= 2;
+        } else if (raw[i] === '<' && raw[i-1] === '<') {
+          depth--;
+          i -= 2;
+          if (depth === 0) {
+            return i + 2;
+          }
+        } else {
+          i--;
+        }
+      }
+      return -1;
+    }
+
     let lastPos = 0;
     while (true) {
       const streamIdx = raw.indexOf("stream", lastPos);
@@ -259,8 +285,8 @@
       let length = -1;
       let isImage = false;
       let header = "";
-      const dictStart = raw.lastIndexOf("<<", streamIdx);
-      if (dictStart !== -1 && streamIdx - dictStart < 2000) {
+      const dictStart = findDictStart(raw, streamIdx);
+      if (dictStart !== -1) {
         header = raw.slice(dictStart, streamIdx);
         if (/\/FlateDecode/i.test(header)) {
           isFlate = true;
@@ -273,6 +299,23 @@
         const lenMatch = header.match(/\/Length\s+(\d+)/i);
         if (lenMatch) {
           length = parseInt(lenMatch[1], 10);
+        }
+      } else {
+        const fallbackStart = raw.lastIndexOf("<<", streamIdx);
+        if (fallbackStart !== -1 && streamIdx - fallbackStart < 2000) {
+          header = raw.slice(fallbackStart, streamIdx);
+          if (/\/FlateDecode/i.test(header)) {
+            isFlate = true;
+          }
+          if (/\/Subtype\s*\/Image/i.test(header) || /\/Type\s*\/XObject/i.test(header)) {
+            if (!/\/Subtype\s*\/Form/i.test(header)) {
+              isImage = true;
+            }
+          }
+          const lenMatch = header.match(/\/Length\s+(\d+)/i);
+          if (lenMatch) {
+            length = parseInt(lenMatch[1], 10);
+          }
         }
       }
 
@@ -351,13 +394,6 @@
     }
 
     // Fallback if no text runs extracted
-    if (textRuns.join(" ").trim().length < 30) {
-      const parenthesized = scanParentheses(raw);
-      parenthesized.forEach((match) => {
-        textRuns.push(decodePdfString(match));
-      });
-    }
-
     if (textRuns.join(" ").trim().length < 30) {
       const fallback = raw.match(/[A-Za-z][A-Za-z0-9,.;:'"!?()\- ]{20,}/g) || [];
       textRuns.push(...fallback.slice(0, 120));
@@ -553,7 +589,7 @@
   async function embedChunks(chunks, apiKey) {
     if (!chunks || !chunks.length) return [];
     const BATCH = 50;
-    const results = [];
+    const promises = [];
     for (let i = 0; i < chunks.length; i += BATCH) {
       const batch = chunks.slice(i, i + BATCH);
       const requests = batch.map(chunk => ({
@@ -562,22 +598,27 @@
           parts: [{ text: chunk.content }]
         }
       }));
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents?key=${apiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requests })
-      });
-      if (!response.ok) {
-        const err = await response.text();
-        throw new Error(`Gemini Batch Embedding error: ${err || response.statusText}`);
-      }
-      const data = await response.json();
-      if (!data.embeddings) {
-        throw new Error("Invalid response from Gemini Batch Embedding API");
-      }
-      results.push(...data.embeddings.map(e => e.values));
+      
+      const promise = (async () => {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents?key=${apiKey}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requests })
+        });
+        if (!response.ok) {
+          const err = await response.text();
+          throw new Error(`Gemini Batch Embedding error: ${err || response.statusText}`);
+        }
+        const data = await response.json();
+        if (!data.embeddings) {
+          throw new Error("Invalid response from Gemini Batch Embedding API");
+        }
+        return data.embeddings.map(e => e.values);
+      })();
+      promises.push(promise);
     }
-    return results;
+    const results = await Promise.all(promises);
+    return results.flat();
   }
 
   async function generateGeminiAnswer(query, retrievedChunks, settings) {
