@@ -380,7 +380,7 @@
       grouped[f.documentName].push(f);
     });
 
-    const findingsLines = ["Based on a local search of your documents, here are the most relevant findings:\n"];
+    const findingsLines = [];
     Object.keys(grouped).forEach((docName) => {
       findingsLines.push(`**${docName}**:`);
       grouped[docName].forEach((f) => {
