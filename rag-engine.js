@@ -295,6 +295,23 @@
         continue;
       }
 
+      // Early-exit check: skip decompressing or parsing fonts, CMaps, xrefs, obj streams, and image formats
+      let isContentStream = true;
+      if (/\/Length\d/i.test(header) || /\/Type\s*\/Font/i.test(header) || /\/ToUnicode/i.test(header)) {
+        isContentStream = false;
+      }
+      if (/\/Type\s*\/ObjStm/i.test(header) || /\/Type\s*\/XRef/i.test(header)) {
+        isContentStream = false;
+      }
+      if (/\/CCITTFaxDecode/i.test(header) || /\/DCTDecode/i.test(header) || /\/JBIG2Decode/i.test(header)) {
+        isContentStream = false;
+      }
+
+      if (!isContentStream) {
+        lastPos = endstreamIdx + 9;
+        continue;
+      }
+
       const streamContentLatin1 = raw.slice(dataStart, dataEnd);
       const streamBytes = new Uint8Array(streamContentLatin1.length);
       for (let i = 0; i < streamContentLatin1.length; i++) {
@@ -314,13 +331,6 @@
       }
 
       if (decompressedStr) {
-        let isContentStream = true;
-        if (/\/Length\d/i.test(header) || /\/Type\s*\/Font/i.test(header) || /\/ToUnicode/i.test(header)) {
-          isContentStream = false;
-        }
-        if (/\/Type\s*\/ObjStm/i.test(header) || /\/Type\s*\/XRef/i.test(header)) {
-          isContentStream = false;
-        }
         if (decompressedStr.startsWith("%!PS") || decompressedStr.startsWith("%%") || decompressedStr.startsWith("%!")) {
           isContentStream = false;
         }
