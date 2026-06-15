@@ -171,23 +171,99 @@
   function extractPdfText(buffer) {
     const raw = new TextDecoder("latin1").decode(buffer);
     const textRuns = [];
-    const stringPattern = /\((?:\\.|[^\\)])*\)\s*Tj|\[(?:.|\n|\r)*?\]\s*TJ/g;
-    const matches = raw.match(stringPattern) || [];
 
-    matches.forEach((match) => {
-      const strings = match.match(/\((?:\\.|[^\\)])*\)/g) || [];
-      strings.forEach((value) => textRuns.push(decodePdfString(value.slice(1, -1))));
-    });
+    // Parse balanced PDF string parentheses and TJ bracket arrays
+    let i = 0;
+    while (i < raw.length) {
+      if (raw[i] === '(') {
+        let depth = 1;
+        let str = "";
+        i++;
+        while (i < raw.length && depth > 0) {
+          const char = raw[i];
+          if (char === '\\') {
+            str += raw.slice(i, i + 2);
+            i += 2;
+          } else if (char === '(') {
+            depth++;
+            str += '(';
+            i++;
+          } else if (char === ')') {
+            depth--;
+            if (depth > 0) {
+              str += ')';
+            }
+            i++;
+          } else {
+            str += char;
+            i++;
+          }
+        }
+        textRuns.push(decodePdfString(str));
+      } else if (raw[i] === '[') {
+        i++;
+        let depth = 1;
+        while (i < raw.length && depth > 0) {
+          const char = raw[i];
+          if (char === ']') {
+            depth--;
+            i++;
+          } else if (char === '(') {
+            let str = "";
+            let sDepth = 1;
+            i++;
+            while (i < raw.length && sDepth > 0) {
+              const sChar = raw[i];
+              if (sChar === '\\') {
+                str += raw.slice(i, i + 2);
+                i += 2;
+              } else if (sChar === '(') {
+                sDepth++;
+                str += '(';
+                i++;
+              } else if (sChar === ')') {
+                sDepth--;
+                if (sDepth > 0) {
+                  str += ')';
+                }
+                i++;
+              } else {
+                str += sChar;
+                i++;
+              }
+            }
+            textRuns.push(decodePdfString(str));
+          } else {
+            i++;
+          }
+        }
+      } else {
+        i++;
+      }
+    }
 
     if (textRuns.join(" ").trim().length < 30) {
       const fallback = raw.match(/[A-Za-z][A-Za-z0-9,.;:'"!?()\- ]{20,}/g) || [];
       textRuns.push(...fallback.slice(0, 120));
     }
 
-    const text = normalizeText(textRuns.join(" "));
+    let text = normalizeText(textRuns.join(" "));
     if (!text) {
       throw new Error("No readable text was found in this PDF. Try a text-based PDF or TXT file.");
     }
+
+    // Clean up PDF-specific object reference garbage (e.g. "FontDescriptor 28 0 R", "5 0 R", "R 5 0")
+    text = text
+      .replace(/FontDescriptor\s+\d+\s+\d+\s+R/gi, "")
+      .replace(/\b\d+\s+\d+\s+R\b/gi, "")
+      .replace(/\bR\s+\d+\s+\d+/g, "")
+      .replace(/\bFontDescriptor\b/gi, "")
+      .replace(/\bR\b/g, "")
+      .replace(/\bTj\b/gi, "")
+      .replace(/\bTJ\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
     return text;
   }
 
