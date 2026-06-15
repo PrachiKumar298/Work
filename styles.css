@@ -1405,11 +1405,6 @@ tr:last-child td {
   color: var(--muted);
   transition: all var(--transition);
   padding: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.project-card:hover .project-card-actions .action-btn {
   opacity: 1;
   pointer-events: auto;
 }
