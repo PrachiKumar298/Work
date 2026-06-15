@@ -183,51 +183,20 @@
       }
     }
 
-    // Browser environment - native DecompressionStream
-    const ds = new DecompressionStream("deflate");
-    const writer = ds.writable.getWriter();
-    writer.write(bytes);
-    writer.close();
-
-    const reader = ds.readable.getReader();
-    const chunks = [];
+    // Browser environment - native DecompressionStream using Blob & Response pipelines
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-      }
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"));
+      const buffer = await new Response(stream).arrayBuffer();
+      return new Uint8Array(buffer);
     } catch (err) {
-      // Fallback: try raw deflate
-      const dsRaw = new DecompressionStream("deflate-raw");
-      const writerRaw = dsRaw.writable.getWriter();
-      writerRaw.write(bytes);
-      writerRaw.close();
-      const readerRaw = dsRaw.readable.getReader();
-      const chunksRaw = [];
-      while (true) {
-        const { done, value } = await readerRaw.read();
-        if (done) break;
-        chunksRaw.push(value);
+      try {
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+        const buffer = await new Response(stream).arrayBuffer();
+        return new Uint8Array(buffer);
+      } catch (err2) {
+        throw err;
       }
-      const totalLength = chunksRaw.reduce((acc, c) => acc + c.length, 0);
-      const result = new Uint8Array(totalLength);
-      let offset = 0;
-      for (const chunk of chunksRaw) {
-        result.set(chunk, offset);
-        offset += chunk.length;
-      }
-      return result;
     }
-
-    const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
-    const result = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const chunk of chunks) {
-      result.set(chunk, offset);
-      offset += chunk.length;
-    }
-    return result;
   }
 
   function scanParentheses(str) {
@@ -289,9 +258,10 @@
       let isFlate = false;
       let length = -1;
       let isImage = false;
+      let header = "";
       const dictStart = raw.lastIndexOf("<<", streamIdx);
       if (dictStart !== -1 && streamIdx - dictStart < 2000) {
-        const header = raw.slice(dictStart, streamIdx);
+        header = raw.slice(dictStart, streamIdx);
         if (/\/FlateDecode/i.test(header)) {
           isFlate = true;
         }
