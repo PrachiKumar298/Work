@@ -371,10 +371,25 @@
       }
     });
 
-    const findingsText = [
-      "Based on a local search of your documents, here are the most relevant findings:\n",
-      ...findings.map(f => `* **${f.documentName} (chunk ${f.chunkNumber})**: "${f.sentence}"`)
-    ].join("\n");
+    // Group findings by documentName to avoid repeating the file name on every line
+    const grouped = {};
+    findings.forEach((f) => {
+      if (!grouped[f.documentName]) {
+        grouped[f.documentName] = [];
+      }
+      grouped[f.documentName].push(f);
+    });
+
+    const findingsLines = ["Based on a local search of your documents, here are the most relevant findings:\n"];
+    Object.keys(grouped).forEach((docName) => {
+      findingsLines.push(`**${docName}**:`);
+      grouped[docName].forEach((f) => {
+        findingsLines.push(`* **Chunk ${f.chunkNumber}**: "${f.sentence}"`);
+      });
+      findingsLines.push(""); // empty line between documents
+    });
+
+    const findingsText = findingsLines.join("\n").trim();
 
     const citations = retrieved.map((chunk) => `${chunk.documentName} chunk ${chunk.chunkNumber}`);
     return {
