@@ -345,6 +345,18 @@ button {
     box-shadow var(--transition);
 }
 
+.field select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b6b72' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  padding-right: 36px;
+  cursor: pointer;
+}
+
 .field textarea {
   min-height: 116px;
   resize: vertical;
@@ -1377,13 +1389,7 @@ tr:last-child td {
   right: 12px;
   display: flex;
   gap: 6px;
-  opacity: 0.6;
-  transition: opacity var(--transition);
   z-index: 5;
-}
-
-.project-card:hover .project-card-actions {
-  opacity: 1;
 }
 
 .project-card-actions .action-btn {
@@ -1399,6 +1405,13 @@ tr:last-child td {
   color: var(--muted);
   transition: all var(--transition);
   padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.project-card:hover .project-card-actions .action-btn {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .project-card-actions .action-btn:hover {
@@ -1408,23 +1421,26 @@ tr:last-child td {
 }
 
 .project-card-actions .flag-btn.flagged {
-  color: #ff3b30;
-  border-color: rgba(255, 59, 48, 0.25);
-  background: rgba(255, 59, 48, 0.05);
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  color: #d71920; /* Bright red using our theme's --red */
+  border-color: rgba(215, 25, 32, 0.4);
+  background: rgba(215, 25, 32, 0.08);
 }
 
 .project-card-actions .flag-btn.flagged svg {
-  fill: #ff3b30;
+  fill: #d71920;
 }
 
 .project-card-actions .flag-btn.flagged:hover {
-  color: #e02d22;
-  border-color: rgba(224, 45, 34, 0.4);
+  color: #a80f15; /* theme's --red-dark */
+  border-color: rgba(168, 15, 21, 0.5);
+  background: rgba(168, 15, 21, 0.12);
 }
 
 .project-card-actions .delete-btn:hover {
-  color: #ff3b30;
-  border-color: rgba(255, 59, 48, 0.3);
-  background: rgba(255, 59, 48, 0.05);
+  color: var(--red);
+  border-color: rgba(215, 25, 32, 0.3);
+  background: rgba(215, 25, 32, 0.05);
 }
 
