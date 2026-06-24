@@ -1283,6 +1283,7 @@ async function toggleFlag(projectId) {
     const { error } = await window.InventiveDB.updateProject(projectId, { is_important: nextFlag });
     if (error) {
       console.error("[DB] updateProject (flag):", error);
+      alert("Failed to update project flag: " + error);
       return;
     }
   }
