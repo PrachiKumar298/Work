@@ -548,8 +548,40 @@
     return dot / (Math.sqrt(aMagnitude) * Math.sqrt(bMagnitude));
   }
 
+  function isSummaryOrAboutQuery(text) {
+    const clean = String(text || "").trim().toLowerCase();
+    const patterns = [
+      /\b(summary|summarize|summarise|overview|abstract|synopsis)\b/i,
+      /\bwhat\s+(is|are)\s+this\s+(document|doc|project|file|collection|kb)\s+(about|abt)\b/i,
+      /\bwhat\s+(is|are)\s+these\s+(documents|docs|projects|files|collections)\s+(about|abt)\b/i,
+      /\bwhat\s+does\s+this\s+(document|doc|project|file)\s+cover\b/i,
+      /\bwhat\s+do\s+these\s+(documents|docs|files)\s+cover\b/i,
+      /\b(tell|give)\s+me\s+(about|abt|a\s+summary|an\s+overview)\b/i,
+      /^(about|abt)$/i,
+      /^summary$/i,
+      /^overview$/i
+    ];
+    return patterns.some((p) => p.test(clean));
+  }
+
+  function getSummaryChunks(documents, chunksPerDoc = 2) {
+    if (!Array.isArray(documents)) return [];
+    return documents
+      .filter((doc) => doc.status === "processed")
+      .flatMap((doc) => {
+        const docChunks = doc.chunks || [];
+        const selected = docChunks.slice(0, chunksPerDoc);
+        return selected.map((chunk) => ({
+          ...chunk,
+          documentName: doc.name || doc.id || "document",
+          source: doc.name || doc.id || "document"
+        }));
+      });
+  }
+
   function answer(query, documents) {
-    const retrieved = retrieve(query, documents);
+    const isSummary = isSummaryOrAboutQuery(query);
+    const retrieved = isSummary ? getSummaryChunks(documents) : retrieve(query, documents);
     if (!retrieved.length) {
       return {
         text: "I could not find a strong match in the processed documents. Add more source material or ask with terms that appear in the documents.",
@@ -565,24 +597,31 @@
 
     retrieved.forEach((chunk) => {
       const sentences = chunk.content.match(/[^.!?]+[.!?]?/g) || [chunk.content];
-      const scoredSentences = sentences
-        .map((sentence) => ({
-          sentence: sentence.trim(),
-          score: tokenize(sentence).filter((token) => queryTerms.has(token)).length
-        }))
-        .filter(s => s.score > 0)
-        .sort((a, b) => b.score - a.score);
-
+      
       let best = null;
-      for (const s of scoredSentences) {
-        if (!seenSentences.has(s.sentence)) {
-          best = s;
-          break;
+      if (isSummary) {
+        if (sentences.length > 0) {
+          best = { sentence: sentences[0].trim() };
         }
-      }
+      } else {
+        const scoredSentences = sentences
+          .map((sentence) => ({
+            sentence: sentence.trim(),
+            score: tokenize(sentence).filter((token) => queryTerms.has(token)).length
+          }))
+          .filter(s => s.score > 0)
+          .sort((a, b) => b.score - a.score);
 
-      if (!best && scoredSentences.length > 0) {
-        best = scoredSentences[0];
+        for (const s of scoredSentences) {
+          if (!seenSentences.has(s.sentence)) {
+            best = s;
+            break;
+          }
+        }
+
+        if (!best && scoredSentences.length > 0) {
+          best = scoredSentences[0];
+        }
       }
       
       if (best?.sentence) {
@@ -594,7 +633,7 @@
         
         if (cleaned) {
           findings.push({
-            documentName: chunk.documentName,
+            documentName: chunk.documentName || chunk.source || "document",
             chunkNumber: chunk.chunkNumber,
             sentence: cleaned
           });
@@ -615,19 +654,23 @@
     Object.keys(grouped).forEach((docName) => {
       findingsLines.push(`**${docName}**:`);
       grouped[docName].forEach((f) => {
-        findingsLines.push(`* **Chunk ${f.chunkNumber}**: "${f.sentence}"`);
+        if (isSummary) {
+          findingsLines.push(`* Overview: "${f.sentence}"`);
+        } else {
+          findingsLines.push(`* **Chunk ${f.chunkNumber}**: "${f.sentence}"`);
+        }
       });
       findingsLines.push(""); // empty line between documents
     });
 
     const findingsText = findingsLines.join("\n").trim();
 
-    const citations = retrieved.map((chunk) => `${chunk.documentName} chunk ${chunk.chunkNumber}`);
+    const citations = retrieved.map((chunk) => `${chunk.documentName || chunk.source} chunk ${chunk.chunkNumber}`);
     return {
       text: findingsText || "No readable content could be extracted from matches.",
       citations: [...new Set(citations)],
       context: retrieved
-        .map((chunk) => `[${chunk.documentName} chunk ${chunk.chunkNumber}] ${chunk.content}`)
+        .map((chunk) => `[${chunk.documentName || chunk.source} chunk ${chunk.chunkNumber}] ${chunk.content}`)
         .join("\n\n"),
       retrieved
     };
@@ -713,7 +756,8 @@
       .map((chunk, idx) => `[Source ${idx + 1}: ${chunk.source || chunk.documentName} chunk ${chunk.chunkNumber}]\n${chunk.content}`)
       .join("\n\n");
 
-    const systemPrompt = `You are a professional research AI assistant answering questions based on the user's document collections.
+    const isSummary = isSummaryOrAboutQuery(query);
+    let systemPrompt = `You are a professional research AI assistant answering questions based on the user's document collections.
 Your goal is to write a highly polished, coherent, and grammatically perfect synthesis that directly answers the question using the context below.
 
 Guidelines:
@@ -722,6 +766,10 @@ Guidelines:
 3. Handle placeholders: The source text might contain placeholders like "[source-id]" (which represent missing words like "representations", "embeddings", "hierarchical", "compositionality", or citations). When writing your answer, replace or omit these placeholders to produce natural, grammatically correct sentences. Reconstruct the missing words using the surrounding context and your general knowledge.
 4. Cite the sources in your answer text using the exact bracket format at the end of relevant statements (e.g., [Source 1], [Source 2]). Do NOT combine them as [Source 1, 2], write them as [Source 1][Source 2].
 5. Keep the response concise, clear, and professional.`;
+
+    if (isSummary) {
+      systemPrompt += `\n\nNote: The provided context documents are the introductory sections of the files. Use them to provide a high-level summary or overview of the documents as requested by the user.`;
+    }
 
     const modelName = settings.geminiModel || "gemini-2.5-flash";
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${settings.geminiApiKey}`, {
@@ -954,6 +1002,8 @@ Guidelines:
     deleteFromPinecone,
     deleteProjectFromPinecone,
     testCredentials,
-    reprocessProjects
+    reprocessProjects,
+    isSummaryOrAboutQuery,
+    getSummaryChunks
   };
 })();

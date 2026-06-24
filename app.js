@@ -1347,26 +1347,31 @@ async function submitQuery(projectId, text) {
     });
 
     try {
-      const queryEmbedding = await window.RagEngine.embedQuery(text, state.settings.geminiApiKey);
-
       let retrieved = [];
-      if (state.settings.vectorDb === "pinecone") {
-        retrieved = await window.RagEngine.queryPinecone(queryEmbedding, 4, projectId, state.settings);
+      const isSummary = window.RagEngine.isSummaryOrAboutQuery(text);
+      if (isSummary) {
+        retrieved = window.RagEngine.getSummaryChunks(project.documents);
       } else {
-        const chunks = project.documents
-          .filter((doc) => doc.status === "processed")
-          .flatMap((doc) => (doc.chunks || []).map((chunk) => ({ ...chunk, documentName: doc.name })));
-        
-        const chunksWithEmbeddings = chunks.filter((c) => c.embedding && c.embedding.length > 0);
-        if (chunksWithEmbeddings.length > 0) {
-          retrieved = chunksWithEmbeddings
-            .map((chunk) => ({
-              ...chunk,
-              score: window.RagEngine.cosineSimilarityVectors(queryEmbedding, chunk.embedding)
-            }))
-            .filter((chunk) => chunk.score > 0.1)
-            .sort((a, b) => b.score - a.score)
-            .slice(0, 4);
+        const queryEmbedding = await window.RagEngine.embedQuery(text, state.settings.geminiApiKey);
+
+        if (state.settings.vectorDb === "pinecone") {
+          retrieved = await window.RagEngine.queryPinecone(queryEmbedding, 4, projectId, state.settings);
+        } else {
+          const chunks = project.documents
+            .filter((doc) => doc.status === "processed")
+            .flatMap((doc) => (doc.chunks || []).map((chunk) => ({ ...chunk, documentName: doc.name })));
+          
+          const chunksWithEmbeddings = chunks.filter((c) => c.embedding && c.embedding.length > 0);
+          if (chunksWithEmbeddings.length > 0) {
+            retrieved = chunksWithEmbeddings
+              .map((chunk) => ({
+                ...chunk,
+                score: window.RagEngine.cosineSimilarityVectors(queryEmbedding, chunk.embedding)
+              }))
+              .filter((chunk) => chunk.score > 0.1)
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 4);
+          }
         }
       }
 
