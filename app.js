@@ -1046,6 +1046,7 @@ async function handleSubmit(event) {
       id: row.id,
       name: row.name,
       createdAt: row.created_at || new Date().toISOString(),
+      isImportant: !!row.is_important || false,
       documents: [],
       conversation: []
     };
