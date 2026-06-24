@@ -7,7 +7,9 @@
     "check": "node --check app.js && node --check rag-engine.js && node --check config.js && node --check embeddings.js && node --check pinecone-client.js && node --check fid-engine.js && node --check server.js"
   },
   "dependencies": {
-    "node-fetch": "2",
+    "node-fetch": "2"
+  },
+  "devDependencies": {
     "puppeteer": "^20.0.0"
   }
 }
