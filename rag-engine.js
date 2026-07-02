@@ -548,9 +548,9 @@
     return dot / (Math.sqrt(aMagnitude) * Math.sqrt(bMagnitude));
   }
 
-  function isSummaryOrAboutQuery(text) {
+  function classifyQueryIntent(text) {
     const clean = String(text || "").trim().toLowerCase();
-    const patterns = [
+    const summaryPatterns = [
       /\b(summary|summarize|summarise|overview|abstract|synopsis)\b/i,
       /\bwhat\s+(is|are)\s+this\s+(document|doc|project|file|collection|kb)\s+(about|abt)\b/i,
       /\bwhat\s+(is|are)\s+these\s+(documents|docs|projects|files|collections)\s+(about|abt)\b/i,
@@ -561,16 +561,33 @@
       /^summary$/i,
       /^overview$/i
     ];
-    return patterns.some((p) => p.test(clean));
+    const detailPatterns = [
+      /\b(details?|detail|explain|explanation|describe|description|elaborate|tell\s+me\s+more|give\s+me\s+details)\b/i,
+      /\bshow\s+me\s+the\s+details\b/i,
+      /\bprovide\s+more\s+detail\b/i
+    ];
+
+    if (summaryPatterns.some((p) => p.test(clean))) return "summary";
+    if (detailPatterns.some((p) => p.test(clean))) return "details";
+    return "retrieval";
   }
 
-  function getSummaryChunks(documents, chunksPerDoc = 2) {
+  function isSummaryOrAboutQuery(text) {
+    return classifyQueryIntent(text) !== "retrieval";
+  }
+
+  function getIntentAwareChunks(query, documents, chunksPerDoc = 2) {
     if (!Array.isArray(documents)) return [];
+
+    const intent = classifyQueryIntent(query);
+    if (intent === "retrieval") return [];
+
+    const perDoc = intent === "details" ? Math.max(chunksPerDoc + 1, 3) : chunksPerDoc;
     return documents
       .filter((doc) => doc.status === "processed")
       .flatMap((doc) => {
-        const docChunks = doc.chunks || [];
-        const selected = docChunks.slice(0, chunksPerDoc);
+        const docChunks = Array.isArray(doc.chunks) ? doc.chunks : [];
+        const selected = docChunks.slice(0, perDoc);
         return selected.map((chunk) => ({
           ...chunk,
           documentName: doc.name || doc.id || "document",
@@ -579,9 +596,15 @@
       });
   }
 
+  function getSummaryChunks(documents, chunksPerDoc = 2) {
+    return getIntentAwareChunks("give me a summary", documents, chunksPerDoc);
+  }
+
   function answer(query, documents) {
-    const isSummary = isSummaryOrAboutQuery(query);
-    const retrieved = isSummary ? getSummaryChunks(documents) : retrieve(query, documents);
+    const queryIntent = classifyQueryIntent(query);
+    const isSummary = queryIntent === "summary";
+    const isBroadIntent = queryIntent !== "retrieval";
+    const retrieved = isBroadIntent ? getIntentAwareChunks(query, documents) : retrieve(query, documents);
     if (!retrieved.length) {
       return {
         text: "I could not find a strong match in the processed documents. Add more source material or ask with terms that appear in the documents.",
@@ -599,7 +622,11 @@
       const sentences = chunk.content.match(/[^.!?]+[.!?]?/g) || [chunk.content];
       
       let best = null;
-      if (isSummary) {
+      if (isBroadIntent) {
+        if (sentences.length > 0) {
+          best = { sentence: sentences[0].trim() };
+        }
+      } else if (isSummary) {
         if (sentences.length > 0) {
           best = { sentence: sentences[0].trim() };
         }
@@ -654,7 +681,7 @@
     Object.keys(grouped).forEach((docName) => {
       findingsLines.push(`**${docName}**:`);
       grouped[docName].forEach((f) => {
-        if (isSummary) {
+        if (isBroadIntent || isSummary) {
           findingsLines.push(`* Overview: "${f.sentence}"`);
         } else {
           findingsLines.push(`* **Chunk ${f.chunkNumber}**: "${f.sentence}"`);
@@ -756,7 +783,9 @@
       .map((chunk, idx) => `[Source ${idx + 1}: ${chunk.source || chunk.documentName} chunk ${chunk.chunkNumber}]\n${chunk.content}`)
       .join("\n\n");
 
-    const isSummary = isSummaryOrAboutQuery(query);
+    const queryIntent = classifyQueryIntent(query);
+    const isBroadIntent = queryIntent !== "retrieval";
+    const isSummary = queryIntent === "summary";
     let systemPrompt = `You are a professional research AI assistant answering questions based on the user's document collections.
 Your goal is to write a highly polished, coherent, and grammatically perfect synthesis that directly answers the question using the context below.
 
@@ -767,8 +796,12 @@ Guidelines:
 4. Cite the sources in your answer text using the exact bracket format at the end of relevant statements (e.g., [Source 1], [Source 2]). Do NOT combine them as [Source 1, 2], write them as [Source 1][Source 2].
 5. Keep the response concise, clear, and professional.`;
 
+    if (isBroadIntent) {
+      systemPrompt += `\n\nNote: The user asked a broad, intent-based question such as a summary or a request for details. Synthesize the most relevant points from the context documents and answer directly, even if the wording does not closely match the source text.`;
+    }
+
     if (isSummary) {
-      systemPrompt += `\n\nNote: The provided context documents are the introductory sections of the files. Use them to provide a high-level summary or overview of the documents as requested by the user.`;
+      systemPrompt += `\n\nUse the provided context to give a concise high-level summary or overview of the documents as requested by the user.`;
     }
 
     const modelName = settings.geminiModel || "gemini-2.5-flash";
@@ -1004,6 +1037,8 @@ Guidelines:
     testCredentials,
     reprocessProjects,
     isSummaryOrAboutQuery,
-    getSummaryChunks
+    getSummaryChunks,
+    classifyQueryIntent,
+    getIntentAwareChunks
   };
 })();

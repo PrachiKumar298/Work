@@ -55,7 +55,7 @@ const seedState = {
   search: "",
   sort: "created-desc",
   settings: {
-    ragMode: "local",
+    ragMode: "gemini",
     vectorDb: "local",
     geminiApiKey: "",
     pineconeApiKey: "",
@@ -118,7 +118,17 @@ window.state = state;
 function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey));
-    return saved ? migrateState({ ...seedState, ...saved, errors: {}, modal: null, settingsTestStatus: null, isQuerying: false }) : structuredClone(seedState);
+    if (saved) {
+      const settings = {
+        ...seedState.settings,
+        ...(saved.settings || {})
+      };
+      if (settings.ragMode === "local" && !settings.geminiApiKey) {
+        settings.ragMode = "gemini";
+      }
+      return migrateState({ ...seedState, ...saved, settings, errors: {}, modal: null, settingsTestStatus: null, isQuerying: false });
+    }
+    return structuredClone(seedState);
   } catch {
     return structuredClone(seedState);
   }
@@ -1348,9 +1358,9 @@ async function submitQuery(projectId, text) {
 
     try {
       let retrieved = [];
-      const isSummary = window.RagEngine.isSummaryOrAboutQuery(text);
-      if (isSummary) {
-        retrieved = window.RagEngine.getSummaryChunks(project.documents);
+      const queryIntent = window.RagEngine.classifyQueryIntent ? window.RagEngine.classifyQueryIntent(text) : window.RagEngine.isSummaryOrAboutQuery(text);
+      if (queryIntent !== "retrieval") {
+        retrieved = window.RagEngine.getIntentAwareChunks ? window.RagEngine.getIntentAwareChunks(text, project.documents) : window.RagEngine.getSummaryChunks(project.documents);
       } else {
         const queryEmbedding = await window.RagEngine.embedQuery(text, state.settings.geminiApiKey);
 
