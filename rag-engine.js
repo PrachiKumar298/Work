@@ -600,6 +600,36 @@
     return getIntentAwareChunks("give me a summary", documents, chunksPerDoc);
   }
 
+  function normalizeAnswerText(text) {
+    return String(text || "")
+      .replace(/\[[a-zA-Z0-9_-]+-id\]/gi, "")
+      .replace(/\s+/g, " ")
+      .replace(/"/g, "")
+      .trim();
+  }
+
+  function buildReadableAnswer(findings, queryIntent) {
+    const cleanedSentences = [...new Set(
+      findings
+        .map((finding) => normalizeAnswerText(finding.sentence))
+        .filter(Boolean)
+    )];
+
+    if (!cleanedSentences.length) {
+      return "No readable content could be extracted from matches.";
+    }
+
+    const intro = queryIntent === "summary"
+      ? "The documents describe the main points as follows: "
+      : queryIntent === "details"
+        ? "The documents explain the topic in more detail: "
+        : "The documents indicate that ";
+
+    const body = cleanedSentences.join(" ");
+    const paragraph = `${intro}${body}`.replace(/\s+/g, " ").trim();
+    return /[.!?]$/.test(paragraph) ? paragraph : `${paragraph}.`;
+  }
+
   function answer(query, documents) {
     const queryIntent = classifyQueryIntent(query);
     const isSummary = queryIntent === "summary";
@@ -658,10 +688,7 @@
       
       if (best?.sentence) {
         seenSentences.add(best.sentence);
-        let cleaned = best.sentence
-          .replace(/\[[a-zA-Z0-9_-]+-id\]/gi, "")
-          .replace(/\s+/g, " ")
-          .trim();
+        let cleaned = normalizeAnswerText(best.sentence);
         
         if (cleaned) {
           findings.push({
@@ -673,29 +700,7 @@
       }
     });
 
-    // Group findings by documentName to avoid repeating the file name on every line
-    const grouped = {};
-    findings.forEach((f) => {
-      if (!grouped[f.documentName]) {
-        grouped[f.documentName] = [];
-      }
-      grouped[f.documentName].push(f);
-    });
-
-    const findingsLines = [];
-    Object.keys(grouped).forEach((docName) => {
-      findingsLines.push(`**${docName}**:`);
-      grouped[docName].forEach((f) => {
-        if (isBroadIntent || isSummary) {
-          findingsLines.push(`* Overview: "${f.sentence}"`);
-        } else {
-          findingsLines.push(`* **Chunk ${f.chunkNumber}**: "${f.sentence}"`);
-        }
-      });
-      findingsLines.push(""); // empty line between documents
-    });
-
-    const findingsText = findingsLines.join("\n").trim();
+    const findingsText = buildReadableAnswer(findings, queryIntent);
 
     const citations = retrieved.map((chunk) => `${chunk.documentName || chunk.source} chunk ${chunk.chunkNumber}`);
     return {
@@ -799,7 +804,8 @@ Guidelines:
 2. Write in a continuous, fluent, and well-structured narrative style. Avoid copying sentences verbatim or stitching disconnected quotes together. Ensure smooth logical transitions between sentences.
 3. Handle placeholders: The source text might contain placeholders like "[source-id]" (which represent missing words like "representations", "embeddings", "hierarchical", "compositionality", or citations). When writing your answer, replace or omit these placeholders to produce natural, grammatically correct sentences. Reconstruct the missing words using the surrounding context and your general knowledge.
 4. Cite the sources in your answer text using the exact bracket format at the end of relevant statements (e.g., [Source 1], [Source 2]). Do NOT combine them as [Source 1, 2], write them as [Source 1][Source 2].
-5. Keep the response concise, clear, and professional.`;
+5. Keep the response concise, clear, and professional. Do not use bullet points, repeated labels such as "Overview", or quotation marks around the answer.
+6. Write as one or two polished paragraphs when appropriate, not as a list of fragments.`;
 
     if (isBroadIntent) {
       systemPrompt += `\n\nNote: The user asked a broad, intent-based question such as a summary or a request for details. Synthesize the most relevant points from the context documents and answer directly, even if the wording does not closely match the source text.`;
