@@ -619,14 +619,8 @@
       return "No readable content could be extracted from matches.";
     }
 
-    const intro = queryIntent === "summary"
-      ? "The documents describe the main points as follows: "
-      : queryIntent === "details"
-        ? "The documents explain the topic in more detail: "
-        : "The documents indicate that ";
-
     const body = cleanedSentences.join(" ");
-    const paragraph = `${intro}${body}`.replace(/\s+/g, " ").trim();
+    const paragraph = body.replace(/\s+/g, " ").trim();
     return /[.!?]$/.test(paragraph) ? paragraph : `${paragraph}.`;
   }
 
