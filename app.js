@@ -889,6 +889,30 @@ function buildContext(project) {
   return `Indexed sources: ${processed.map((doc) => `${doc.name} (${doc.chunkCount || 0} chunks)`).join(", ")}.`;
 }
 
+function getSettingsFromForm(form, fallbackSettings = state.settings) {
+  const formData = new FormData(form);
+  const ragMode = String(formData.get("ragMode") || document.querySelector('input[name="ragMode"]:checked')?.value || fallbackSettings.ragMode || "gemini").trim();
+  const vectorDb = String(formData.get("vectorDb") || document.querySelector('input[name="vectorDb"]:checked')?.value || fallbackSettings.vectorDb || "local").trim();
+  const geminiModel = String(formData.get("geminiModel") || fallbackSettings.geminiModel || "gemini-2.5-flash").trim();
+  const geminiApiKey = String(formData.get("geminiApiKey") || fallbackSettings.geminiApiKey || "").trim();
+  const pineconeApiKey = String(formData.get("pineconeApiKey") || fallbackSettings.pineconeApiKey || "").trim();
+  const pineconeIndexHost = String(formData.get("pineconeIndexHost") || fallbackSettings.pineconeIndexHost || "").trim();
+  const supabaseUrl = String(formData.get("supabaseUrl") || fallbackSettings.supabaseUrl || "").trim();
+  const supabaseAnonKey = String(formData.get("supabaseAnonKey") || fallbackSettings.supabaseAnonKey || "").trim();
+
+  return {
+    ...fallbackSettings,
+    ragMode,
+    vectorDb,
+    geminiModel,
+    geminiApiKey,
+    pineconeApiKey,
+    pineconeIndexHost,
+    supabaseUrl,
+    supabaseAnonKey
+  };
+}
+
 function bindEvents() {
   document.querySelectorAll("[data-action]").forEach((element) => {
     element.addEventListener("click", handleAction);
@@ -1096,36 +1120,18 @@ async function handleSubmit(event) {
   }
 
   if (formType === "settings-save") {
-    const ragMode = data.get("ragMode");
-    const vectorDb = data.get("vectorDb") || "local";
-    const geminiModel = data.get("geminiModel") || "gemini-2.5-flash";
-    const geminiApiKey = data.get("geminiApiKey")?.trim() || "";
-    const pineconeApiKey = data.get("pineconeApiKey")?.trim() || "";
-    const pineconeIndexHost = data.get("pineconeIndexHost")?.trim() || "";
-    const supabaseUrl = data.get("supabaseUrl")?.trim() || "";
-    const supabaseAnonKey = data.get("supabaseAnonKey")?.trim() || "";
+    const updatedSettings = getSettingsFromForm(form, state.settings);
 
-    if (ragMode === "gemini" && !geminiApiKey) {
+    if (updatedSettings.ragMode === "gemini" && !updatedSettings.geminiApiKey) {
       return setState({ errors: { settings: "Please provide a Gemini API Key to use Gemini mode." } });
     }
-    if (ragMode === "gemini" && vectorDb === "pinecone") {
-      if (!pineconeApiKey || !pineconeIndexHost) {
+    if (updatedSettings.ragMode === "gemini" && updatedSettings.vectorDb === "pinecone") {
+      if (!updatedSettings.pineconeApiKey || !updatedSettings.pineconeIndexHost) {
         return setState({ errors: { settings: "Please provide both Pinecone API Key and Index Host for Pinecone mode." } });
       }
     }
 
-    const updatedSettings = {
-      ragMode,
-      vectorDb,
-      geminiModel,
-      geminiApiKey,
-      pineconeApiKey,
-      pineconeIndexHost,
-      supabaseUrl,
-      supabaseAnonKey
-    };
-
-    window.InventiveDB.init(supabaseUrl, supabaseAnonKey);
+    window.InventiveDB.init(updatedSettings.supabaseUrl, updatedSettings.supabaseAnonKey);
 
     setState({
       settings: updatedSettings,
