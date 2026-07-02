@@ -582,7 +582,7 @@
     const intent = classifyQueryIntent(query);
     if (intent === "retrieval") return [];
 
-    const perDoc = intent === "details" ? Math.max(chunksPerDoc + 1, 3) : chunksPerDoc;
+    const perDoc = intent === "details" ? Math.max(chunksPerDoc + 3, 5) : Math.max(chunksPerDoc, 2);
     return documents
       .filter((doc) => doc.status === "processed")
       .flatMap((doc) => {
@@ -622,7 +622,12 @@
       const sentences = chunk.content.match(/[^.!?]+[.!?]?/g) || [chunk.content];
       
       let best = null;
-      if (isBroadIntent) {
+      if (queryIntent === "details") {
+        const detailSentences = sentences.slice(0, Math.min(3, sentences.length)).map((s) => s.trim()).filter(Boolean);
+        if (detailSentences.length > 0) {
+          best = { sentence: detailSentences.join(" ") };
+        }
+      } else if (isBroadIntent) {
         if (sentences.length > 0) {
           best = { sentence: sentences[0].trim() };
         }
@@ -801,7 +806,9 @@ Guidelines:
     }
 
     if (isSummary) {
-      systemPrompt += `\n\nUse the provided context to give a concise high-level summary or overview of the documents as requested by the user.`;
+      systemPrompt += `\n\nUse the provided context to give a concise high-level summary or overview of the documents as requested by the user. Keep it brief and focused on the main ideas.`;
+    } else if (queryIntent === "details") {
+      systemPrompt += `\n\nThe user wants detailed information. Expand the answer with specific points, important nuances, and supporting details from the context. Do not make it a short summary; provide a fuller explanation.`;
     }
 
     const modelName = settings.geminiModel || "gemini-2.5-flash";
